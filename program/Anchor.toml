@@ -1,4 +1,4 @@
-skip_local_validator = true
+skip_local_validator = false
 
 [toolchain]
 
@@ -10,10 +10,10 @@ skip-lint = false
 fundraiser = "DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7"
 
 [provider]
-cluster = "localnet"
+cluster = "http://127.0.0.1:8899"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "cargo test"
+test = "npm run test"
 
 [hooks]
