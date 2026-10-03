@@ -74,7 +74,8 @@ export type Fundraiser = {
     {
       "name": "contribute",
       "docs": [
-        "Put SOL in. Signer: anyone, while the campaign is still open."
+        "Put SOL in. Signer: anyone while open; for a private campaign, also",
+        "the invite key from the share link."
       ],
       "discriminator": [
         82,
@@ -160,6 +161,15 @@ export type Fundraiser = {
           }
         },
         {
+          "name": "invite",
+          "docs": [
+            "Only for private campaigns: the invite key from the organizer's share",
+            "link, co-signing to prove the contributor actually holds that link."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -168,6 +178,10 @@ export type Fundraiser = {
         {
           "name": "amount",
           "type": "u64"
+        },
+        {
+          "name": "nickname",
+          "type": "string"
         }
       ]
     },
@@ -246,6 +260,12 @@ export type Fundraiser = {
         {
           "name": "recipient",
           "type": "pubkey"
+        },
+        {
+          "name": "invite",
+          "type": {
+            "option": "pubkey"
+          }
         }
       ]
     },
@@ -502,6 +522,21 @@ export type Fundraiser = {
       "code": 6012,
       "name": "campaignNotSettled",
       "msg": "Campaign can only be closed after a withdrawal or after every contribution was refunded"
+    },
+    {
+      "code": 6013,
+      "name": "inviteRequired",
+      "msg": "This campaign is private: contributing requires the organizer's invite link"
+    },
+    {
+      "code": 6014,
+      "name": "invalidInvite",
+      "msg": "This invite does not belong to this campaign"
+    },
+    {
+      "code": 6015,
+      "name": "nicknameTooLong",
+      "msg": "Nickname must be at most 32 bytes"
     }
   ],
   "types": [
@@ -582,6 +617,20 @@ export type Fundraiser = {
             "type": "bool"
           },
           {
+            "name": "invite",
+            "docs": [
+              "`Some` makes the campaign private: `contribute` then requires this key",
+              "to co-sign. Its secret travels only inside the organizer's share link,",
+              "so only people holding that link can join. `None` means public.",
+              "",
+              "This restricts who can *contribute*. It does not hide the campaign:",
+              "every account on Solana is readable by anyone."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -613,6 +662,14 @@ export type Fundraiser = {
           {
             "name": "amount",
             "type": "u64"
+          },
+          {
+            "name": "nickname",
+            "docs": [
+              "How this contributor wants to be shown to the group, e.g. \"Kuba\".",
+              "Chosen by the contributor, per campaign; empty means \"show my address\"."
+            ],
+            "type": "string"
           },
           {
             "name": "bump",

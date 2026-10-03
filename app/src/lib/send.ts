@@ -1,4 +1,4 @@
-import type { Connection, Transaction } from '@solana/web3.js'
+import type { Connection, Keypair, Transaction } from '@solana/web3.js'
 
 import { explainFailure, type ProgramFailure } from './errors'
 
@@ -26,9 +26,9 @@ export async function sendTransaction(
   connection: Connection,
   wallet: SignerWallet,
   transaction: Transaction,
-  options: { skipPreflight?: boolean } = {},
+  options: { skipPreflight?: boolean; extraSigners?: Keypair[] } = {},
 ): Promise<TxOutcome> {
-  const { skipPreflight = false } = options
+  const { skipPreflight = false, extraSigners = [] } = options
 
   try {
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed')
@@ -36,6 +36,10 @@ export async function sendTransaction(
     transaction.recentBlockhash = blockhash
 
     const signed = await wallet.signTransaction(transaction)
+    // Extra signers (the private-campaign invite key) sign *after* the wallet:
+    // some wallets adjust a transaction while signing, which would invalidate
+    // any signature collected before.
+    if (extraSigners.length) signed.partialSign(...extraSigners)
 
     let signature: string
     try {

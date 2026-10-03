@@ -14,6 +14,8 @@ export type Campaign = {
   totalRaised: BN
   totalRefunded: BN
   withdrawn: boolean
+  /** Set for private campaigns: contributing needs this key's signature. */
+  invite: PublicKey | null
   bump: number
 }
 
@@ -22,8 +24,12 @@ export type Contribution = {
   campaign: PublicKey
   contributor: PublicKey
   amount: BN
+  /** Chosen by the contributor; empty means "show my address". */
+  nickname: string
   bump: number
 }
+
+export const isPrivate = (campaign: Campaign) => campaign.invite !== null
 
 export type CampaignStatus = 'open' | 'succeeded' | 'failed' | 'withdrawn'
 
@@ -81,4 +87,18 @@ export async function fetchContributions(
   return accounts
     .map((a) => ({ address: a.publicKey, ...(a.account as Omit<Contribution, 'address'>) }))
     .sort((a, b) => b.amount.cmp(a.amount))
+}
+
+/**
+ * Every campaign this wallet has contributed to. `contributor` sits right
+ * after `campaign` (8-byte discriminator + 32-byte pubkey = offset 40).
+ */
+export async function fetchMyCampaignKeys(
+  program: FundraiserProgram,
+  wallet: PublicKey,
+): Promise<Set<string>> {
+  const accounts = await program.account.contribution.all([
+    { memcmp: { offset: 40, bytes: wallet.toBase58() } },
+  ])
+  return new Set(accounts.map((a) => (a.account.campaign as PublicKey).toBase58()))
 }

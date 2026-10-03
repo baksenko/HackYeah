@@ -1,15 +1,17 @@
 import { BN } from '@coral-xyz/anchor'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
-import { PublicKey, SystemProgram } from '@solana/web3.js'
+import { Keypair, PublicKey, SystemProgram } from '@solana/web3.js'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 
 import { Progress } from '../components/Progress'
+import { SharePanel } from '../components/SharePanel'
 import { StatusBadge } from '../components/StatusBadge'
 import { TxResult } from '../components/TxResult'
 import {
   campaignStatus,
+  isPrivate,
   fetchCampaign,
   fetchContributions,
   secondsLeft,
@@ -19,6 +21,13 @@ import {
 import { CLUSTER_LABEL, explorerAddress } from '../lib/cluster'
 import { PERMISSIONS, whatCanHappenNow } from '../lib/explain'
 import { formatCountdown, formatDateTime, formatSol, shortKey, solToLamports } from '../lib/format'
+import {
+  inviteFromHash,
+  recallInvite,
+  recallNickname,
+  rememberInvite,
+  rememberNickname,
+} from '../lib/invite'
 import { contributionPda, useProgram } from '../lib/program'
 import { sendTransaction, type TxOutcome } from '../lib/send'
 import { useChainClock } from '../lib/useChainClock'
@@ -37,6 +46,8 @@ export function CampaignPage() {
   const [busy, setBusy] = useState<string | null>(null)
   const [amount, setAmount] = useState('0.1')
   const [amountError, setAmountError] = useState<string | null>(null)
+  const [nickname, setNickname] = useState(recallNickname)
+  const { hash } = useLocation()
 
   const campaignKey = useMemo(() => {
     try {
@@ -65,6 +76,15 @@ export function CampaignPage() {
     void load()
   }, [load])
 
+  // The invite for a private campaign: from the link just opened, or one this
+  // browser already remembered. Kept only if it matches what is on chain.
+  const linkInvite = useMemo(() => inviteFromHash(hash), [hash])
+  useEffect(() => {
+    if (campaignKey && linkInvite && campaign?.invite?.equals(linkInvite.publicKey)) {
+      rememberInvite(campaignKey, linkInvite)
+    }
+  }, [campaignKey, linkInvite, campaign])
+
   if (!campaignKey) return <p className="empty">That is not a valid campaign address.</p>
   if (loadError) return <p className="notice notice-error">{loadError}</p>
   if (!campaign) return <p className="empty">Reading the chain…</p>
@@ -75,6 +95,14 @@ export function CampaignPage() {
   const isOrganizer = !!me && me.equals(campaign.organizer)
   const isRecipient = !!me && me.equals(campaign.recipient)
   const myContribution = contributions.find((c) => !!me && c.contributor.equals(me)) ?? null
+
+  const privateCampaign = isPrivate(campaign)
+  const candidateInvite: Keypair | null = linkInvite ?? recallInvite(campaignKey)
+  const invite =
+    privateCampaign && candidateInvite && campaign.invite!.equals(candidateInvite.publicKey)
+      ? candidateInvite
+      : null
+  const wrongInvite = privateCampaign && !!linkInvite && !invite
 
   const explanation = whatCanHappenNow(campaign, status, {
     isConnected: wallet.connected,
@@ -87,7 +115,7 @@ export function CampaignPage() {
   async function run(
     key: string,
     build: () => Promise<Awaited<ReturnType<typeof buildContribute>>>,
-    options: { skipPreflight?: boolean } = {},
+    options: { skipPreflight?: boolean; extraSigners?: Keypair[] } = {},
   ) {
     if (!me || !wallet.signTransaction) return
     setOutcome(null)
@@ -116,13 +144,18 @@ export function CampaignPage() {
     }
   }
 
-  const buildContribute = async (lamports: BN) =>
+  /**
+   * `withInvite: false` deliberately leaves the invite out even when this
+   * browser has one — that is how the demo proves the program checks it.
+   */
+  const buildContribute = async (lamports: BN, withInvite = true) =>
     program.methods
-      .contribute(lamports)
+      .contribute(lamports, nickname.trim())
       .accountsPartial({
         contributor: me!,
         campaign: campaign.address,
         contribution: contributionPda(campaign.address, me!),
+        invite: withInvite && invite ? invite.publicKey : null,
         systemProgram: SystemProgram.programId,
       })
       .transaction()
@@ -152,7 +185,10 @@ export function CampaignPage() {
       setAmountError(e instanceof Error ? e.message : 'Enter a valid amount.')
       return
     }
-    void run('contribute', () => buildContribute(lamports))
+    if (nickname.trim()) rememberNickname(nickname.trim())
+    void run('contribute', () => buildContribute(lamports), {
+      extraSigners: invite ? [invite] : [],
+    })
   }
 
   return (
@@ -170,7 +206,12 @@ export function CampaignPage() {
             {isOrganizer && ' (you)'}
           </p>
         </div>
-        <StatusBadge status={status} />
+        <div className="badges">
+          <span className={`badge ${privateCampaign ? 'badge-private' : 'badge-public'}`}>
+            {privateCampaign ? '🔒 Private' : '🌍 Public'}
+          </span>
+          <StatusBadge status={status} />
+        </div>
       </header>
 
       <Progress campaign={campaign} />
@@ -184,6 +225,17 @@ export function CampaignPage() {
           <>Closed on {formatDateTime(campaign.deadline.toNumber())}</>
         )}
       </p>
+
+      {wrongInvite && (
+        <p className="notice notice-error">
+          The invite in this link belongs to a different campaign, so it will not let you
+          contribute here. Ask the organizer for the right link.
+        </p>
+      )}
+
+      {(!privateCampaign || invite) && (
+        <SharePanel campaign={campaign.address} title={campaign.title} invite={invite} />
+      )}
 
       <section className="panel panel-explain">
         <h2>What can happen now</h2>
@@ -205,9 +257,45 @@ export function CampaignPage() {
           </div>
         )}
 
-        {wallet.connected && status === 'open' && (
+        {wallet.connected && status === 'open' && privateCampaign && !invite && (
+          <div className="actions locked">
+            <p>
+              <strong>🔒 This is a private campaign.</strong> Only people with the organizer’s invite
+              link or QR code can contribute. Ask them to send it to you.
+            </p>
+            <div className="demo">
+              <h3>Prove it to yourself</h3>
+              <p>
+                This page is not what keeps you out. Try contributing 0.01 SOL without the invite —
+                the transaction really goes to the chain, and the program refuses it.
+              </p>
+              <button
+                className="button button-danger"
+                onClick={() =>
+                  void run('demo-invite', () => buildContribute(solToLamports('0.01'), false), {
+                    skipPreflight: true,
+                  })
+                }
+                disabled={busy !== null}
+              >
+                {busy === 'demo-invite' ? 'Sending…' : 'Try to contribute without the invite (demo)'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {wallet.connected && status === 'open' && (!privateCampaign || invite) && (
           <div className="actions">
             <div className="amount-row">
+              <label>
+                <span>Your name for the group</span>
+                <input
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  placeholder={myContribution?.nickname || 'e.g. Kuba'}
+                  maxLength={32}
+                />
+              </label>
               <label>
                 <span>Amount in SOL</span>
                 <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" />
@@ -322,11 +410,14 @@ export function CampaignPage() {
                       href={explorerAddress(c.contributor.toBase58())}
                       target="_blank"
                       rel="noreferrer"
-                      className="mono"
+                      className={c.nickname ? 'nickname' : 'mono'}
                     >
-                      {shortKey(c.contributor.toBase58())}
+                      {c.nickname || shortKey(c.contributor.toBase58())}
                     </a>
                     {!!me && c.contributor.equals(me) && <span className="you"> you</span>}
+                    {c.nickname && (
+                      <span className="address-under mono">{shortKey(c.contributor.toBase58())}</span>
+                    )}
                   </td>
                   <td className="right">{formatSol(c.amount)}</td>
                 </tr>

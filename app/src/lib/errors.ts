@@ -14,6 +14,9 @@ const PLAIN_LANGUAGE: Record<string, string> = {
   NotRecipient: 'Only the recipient chosen when this campaign was created can withdraw.',
   AlreadyWithdrawn: 'The money has already been paid out.',
   AccountNotInitialized: 'There is no contribution left to refund — it was already paid back.',
+  InviteRequired: 'This campaign is private. Only people with the organizer’s invite link can contribute — and the program, not this page, enforces that.',
+  InvalidInvite: 'That invite link belongs to a different campaign.',
+  NicknameTooLong: 'Your nickname can be at most 32 characters.',
   WalletHasNoSol:
     'Your wallet has no SOL on this network, so it cannot even pay the transaction fee. Use “Get test SOL” at the top of the page, and check your wallet is set to the same network as this app.',
   NotEnoughSol: 'Your wallet does not hold enough SOL for this. Use “Get test SOL” at the top of the page.',

@@ -13,7 +13,11 @@ export function App() {
     <div className="shell">
       <header className="topbar">
         <Link to="/" className="brand">
-          Chip&nbsp;In
+          <span className="logo">◎</span>
+          <span className="brand-text">
+            <strong>Chip In</strong>
+            <small>Group fundraising</small>
+          </span>
         </Link>
         <div className="topbar-right">
           <span className="devnet-pill">{CLUSTER_LABEL} · test money only</span>

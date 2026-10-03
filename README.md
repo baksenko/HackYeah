@@ -112,6 +112,28 @@ The SOL moves by System Program CPI into the `Campaign` PDA itself. From that
 moment it is held by a program-owned account, so no private key in the world
 can move it except through `withdraw` or `refund`.
 
+### Private campaigns — only invite-link holders can join
+`program/programs/fundraiser/src/instructions/contribute.rs`
+
+```rust
+if let Some(expected) = ctx.accounts.campaign.invite {
+    let invite = ctx.accounts.invite.as_ref().ok_or(FundraiserError::InviteRequired)?;
+    require_keys_eq!(invite.key(), expected, FundraiserError::InvalidInvite);
+}
+```
+
+When an organiser creates a private campaign, the app generates a fresh
+**invite keypair**. Only its public key goes on chain (`Campaign.invite`). The
+secret half becomes the share link — `/c/<campaign>#invite=<secret>` — and the
+QR code. The program then refuses any contribution that is not co-signed by
+that invite key. So "only people with the link can join" is a rule in the
+program: a modified frontend or a hand-built transaction cannot get around it.
+
+The secret sits in the URL **fragment**, which browsers never send to a
+server, and it unlocks nothing except contributing to that one campaign.
+Withdraw and refund never need it, so a lost link can never trap anyone's
+money.
+
 ### The escrow is the campaign account
 The `Campaign` PDA holds the lamports directly. Its balance is always
 
@@ -134,8 +156,8 @@ an instruction does not exist, nobody can call it.
 
 | Instruction | Who may sign | Conditions enforced on chain | Rejects with |
 |---|---|---|---|
-| `create_campaign` | Anyone (becomes the organiser) | `goal > 0`, `deadline > now`, title ≤ 64 bytes | `InvalidGoal`, `InvalidDeadline`, `TitleTooLong` |
-| `contribute` | Anyone | `now < deadline`, `amount > 0` | `DeadlinePassed`, `InvalidAmount` |
+| `create_campaign` | Anyone (becomes the organiser) | `goal > 0`, `deadline > now`, title ≤ 64 bytes; optional invite key makes it private | `InvalidGoal`, `InvalidDeadline`, `TitleTooLong` |
+| `contribute` | Anyone (public) · only holders of the invite link (private) | `now < deadline`, `amount > 0`, nickname ≤ 32 bytes, and for private campaigns the invite key must co-sign | `DeadlinePassed`, `InvalidAmount`, `NicknameTooLong`, `InviteRequired`, `InvalidInvite` |
 | `withdraw` | **Only `campaign.recipient`** | `now ≥ deadline`, `total_raised ≥ goal`, `!withdrawn` | `NotRecipient`, `DeadlineNotReached`, `GoalNotReached`, `AlreadyWithdrawn` |
 | `refund` | **Only the contributor of that `Contribution`** | `now ≥ deadline`, `total_raised < goal` | `DeadlineNotReached`, `GoalReached` |
 | `close_campaign` | **Only `campaign.organizer`** | `withdrawn`, or goal missed and `total_refunded == total_raised` | `CampaignNotSettled` |
@@ -146,6 +168,47 @@ still owed a refund, so it can never touch contributor money.
 
 Time is always `Clock::get()?.unix_timestamp` — the cluster's clock, not a
 timestamp passed in by a caller. All arithmetic is checked.
+
+---
+
+## Private vs public campaigns
+
+| | 🔒 Private — friend groups | 🌍 Public — crowdfunding |
+|---|---|---|
+| Typical use | Trip to New Zealand, a leaving gift, a shared flat purchase | A cause or community project anyone can back |
+| Who can contribute | Only holders of the invite link / QR code — **enforced by the program** | Anyone |
+| Listed on the home page | Only for people already in it (organiser, recipient, contributors, or a browser that opened the invite) | For everyone |
+| Withdraw / refund rules | Identical | Identical |
+
+**Honest caveat: private does not mean secret.** Every account on Solana is
+public. Anyone scanning the chain can see that a private campaign exists, its
+title, goal and contributions. "Private" means it is not advertised by this app
+and, more importantly, *that strangers cannot contribute to it*. Also, anyone
+who has the link can forward it; the program cannot tell a friend from a
+friend's friend.
+
+### Sharing
+
+Every campaign page has a share panel: a **QR code**, **Copy link**, the
+phone's native **Share…** sheet where supported, and **Download QR** (SVG). For
+private campaigns this panel only appears for someone who already holds the
+invite, and the link it shows carries it. The organiser lands on that panel
+right after creating a campaign, and the invite is remembered in their browser.
+
+The QR encodes the address the app is currently served from. On
+`localhost` a friend's phone cannot open it; host the app (or serve it on your
+LAN) for real-world sharing.
+
+### Nicknames
+
+Contributors pick a name for the group when they contribute — "Kuba", "Ola" —
+and the contributor list shows it, with the wallet address underneath. The name
+is stored **on chain in the contributor's own `Contribution` account**
+(≤ 32 bytes), so there is still no backend. It is per campaign, so you can be
+"Kuba" to friends and use your full name on a public cause. A later top-up
+without a name keeps the previous one. The app remembers your last nickname in
+your browser to prefill the field. Nicknames are self-chosen and unverified:
+they help friends tell each other apart, they are not identity.
 
 ---
 
@@ -264,7 +327,9 @@ app/                                      frontend — no backend, no database
   src/lib/errors.ts                       maps program errors to plain language
   src/lib/explain.ts                      the "What can happen now" wording
   src/lib/useChainClock.ts                uses the cluster's clock, not the browser's
-  src/pages/HomePage.tsx                  campaign list via getProgramAccounts
+  src/lib/invite.ts                       invite links (#fragment), share URLs, nickname memory
+  src/components/SharePanel.tsx           QR code, copy link, native share, download QR
+  src/pages/HomePage.tsx                  "Your friend groups" (private) + "Crowdfunding" (public)
   src/pages/CreateCampaignPage.tsx        create form
   src/pages/CampaignPage.tsx              actions, contributors, early-withdraw demo
 
@@ -399,6 +464,10 @@ never held SOL on this cluster.
 Three devnet wallets: **A** (organiser and recipient), **B** and **C**
 (contributors). Fund all three with `./scripts/airdrop.sh <A> <B> <C>`.
 
+The create form defaults to **Private**, since friend groups are the main use.
+For campaigns 1 and 2 either works; if private, send B and C the invite link or
+let them scan the QR code.
+
 **Campaign 1 — it succeeds**
 
 1. **A** creates "Leaving gift for Anna": goal **1 SOL**, deadline **2 minutes**.
@@ -421,6 +490,16 @@ Three devnet wallets: **A** (organiser and recipient), **B** and **C**
 8. **B** clicks **"Get my money back"** and receives their 0.3 SOL — plus the
    rent of the closed receipt. Clicking it again fails: the receipt is gone.
 
+**Campaign 3 — private, for friends** (optional)
+
+9. **A** creates "Trip to New Zealand" as **Private**. The page opens on the
+   invite panel with a QR code.
+10. **C**, without the link, opens the campaign address and clicks
+    **"Try to contribute without the invite (demo)"**. The transaction lands
+    and the program rejects it with `InviteRequired`.
+11. **B** opens the invite link (or scans the QR), enters the nickname "Kuba"
+    and contributes. The list shows "Kuba", not an address.
+
 Worth pointing out while demoing: at step 3 the *organiser and recipient* is
 the one being refused, by a rule they themselves set two minutes earlier and
 now cannot undo.
@@ -441,8 +520,12 @@ now cannot undo.
   the gift gets cancelled, everyone must wait for the deadline. An organiser
   `cancel()` that only ever opens refunds (and can never pay out) would be safe
   to add.
-- **Sharing is manual.** **Shareable invite links** with a preview of the
-  campaign, so joining is one tap rather than copying a base58 address.
+- **Private is not secret.** Campaign data is readable on chain by anyone.
+  Truly confidential amounts would need encryption or a privacy-preserving
+  token, which is out of scope.
+- **Invite links can be forwarded.** Anyone a friend forwards the link to can
+  join. Per-person invites (one key per invitee) would fix this.
+- **Nicknames are not identity.** Anyone can type any name.
 - **The program is still upgradeable.** See
   [Can the authors change anything?](#can-the-authors-change-anything).
 - **Not audited.** Devnet, test money, a hackathon weekend. Do not put real

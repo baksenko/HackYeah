@@ -1,6 +1,6 @@
 import { BN } from '@coral-xyz/anchor'
 
-import type { Campaign, CampaignStatus, Contribution } from './campaign'
+import { isPrivate, type Campaign, type CampaignStatus, type Contribution } from './campaign'
 import { formatDateTime, formatSol, shortKey } from './format'
 
 export type Viewer = {
@@ -38,6 +38,14 @@ export function whatCanHappenNow(
         `If the goal is reached by the deadline, ${viewer.isRecipient ? 'you, as the recipient,' : recipient} will be the only one able to withdraw.`,
         'If it is not reached, every contributor can take back exactly what they paid in.',
       ]
+      if (isPrivate(campaign)) {
+        points.splice(
+          1,
+          0,
+          'It is private: only people with the organizer’s invite link or QR code can contribute. The program checks the invite on every contribution, so this page could not let anyone else in even if it wanted to.',
+        )
+        return { headline: 'This private campaign is open to everyone with the invite link.', points }
+      }
       return { headline: 'This campaign is open. Anyone can contribute.', points }
     }
 
@@ -61,6 +69,7 @@ export function whatCanHappenNow(
         'Each contributor gets back exactly what they paid in — not a share of what is left, the exact amount.',
         'The recipient cannot withdraw a thing. The program rejects the attempt with GoalNotReached.',
         'There is no deadline on claiming a refund. Money waits in the program until its contributor asks for it.',
+        'No invite link is needed to get money back — even from a private campaign.',
       ]
       if (viewer.myContribution) {
         points.unshift(
@@ -95,9 +104,9 @@ export function whatCanHappenNow(
 export const PERMISSIONS = [
   {
     action: 'Contribute',
-    who: 'Anyone',
+    who: 'Anyone (public) · invite-link holders only (private)',
     when: 'Before the deadline',
-    enforcedBy: 'contribute.rs — DeadlinePassed, InvalidAmount',
+    enforcedBy: 'contribute.rs — DeadlinePassed, InvalidAmount, InviteRequired, InvalidInvite',
   },
   {
     action: 'Withdraw',

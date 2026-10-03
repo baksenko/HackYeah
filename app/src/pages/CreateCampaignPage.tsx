@@ -1,11 +1,12 @@
 import { BN } from '@coral-xyz/anchor'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
-import { PublicKey, SystemProgram } from '@solana/web3.js'
+import { Keypair, PublicKey, SystemProgram } from '@solana/web3.js'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { TxResult } from '../components/TxResult'
+import { encodeInvite, rememberInvite } from '../lib/invite'
 import { MAX_TITLE_BYTES, campaignPda, useProgram } from '../lib/program'
 import { sendTransaction, type TxOutcome } from '../lib/send'
 import { solToLamports } from '../lib/format'
@@ -26,6 +27,7 @@ export function CreateCampaignPage() {
   const navigate = useNavigate()
   const now = useChainClock()
 
+  const [visibility, setVisibility] = useState<'private' | 'public'>('private')
   const [title, setTitle] = useState('')
   const [goal, setGoal] = useState('1')
   const [preset, setPreset] = useState<number>(PRESETS[0].seconds)
@@ -82,6 +84,9 @@ export function CreateCampaignPage() {
     // A fresh id per campaign so one organizer can run many of them.
     const campaignId = BigInt(Date.now())
     const campaign = campaignPda(wallet.publicKey, campaignId)
+    // A private campaign gets a fresh invite key. Only its public half goes on
+    // chain; the secret half becomes the share link.
+    const invite = visibility === 'private' ? Keypair.generate() : null
 
     setBusy(true)
     try {
@@ -92,6 +97,7 @@ export function CreateCampaignPage() {
           goalLamports,
           new BN(now + seconds),
           recipientKey,
+          invite?.publicKey ?? null,
         )
         .accountsPartial({
           organizer: wallet.publicKey,
@@ -107,7 +113,12 @@ export function CreateCampaignPage() {
       )
       setOutcome(result)
       if (result.kind === 'success') {
-        navigate(`/c/${campaign.toBase58()}`)
+        if (invite) {
+          rememberInvite(campaign, invite)
+          navigate(`/c/${campaign.toBase58()}#invite=${encodeInvite(invite)}`)
+        } else {
+          navigate(`/c/${campaign.toBase58()}`)
+        }
       }
     } finally {
       setBusy(false)
@@ -133,12 +144,38 @@ export function CreateCampaignPage() {
       </p>
 
       <form onSubmit={submit} className="form">
+        <div className="visibility">
+          <button
+            type="button"
+            className={`visibility-option ${visibility === 'private' ? 'selected' : ''}`}
+            onClick={() => setVisibility('private')}
+          >
+            <span className="visibility-icon">🔒</span>
+            <strong>Private — for friends</strong>
+            <small>
+              A trip, a gift, a shared flat. Only people you send the link or QR code to can
+              chip in. Not listed publicly.
+            </small>
+          </button>
+          <button
+            type="button"
+            className={`visibility-option ${visibility === 'public' ? 'selected' : ''}`}
+            onClick={() => setVisibility('public')}
+          >
+            <span className="visibility-icon">🌍</span>
+            <strong>Public — crowdfunding</strong>
+            <small>
+              A cause or community project. Listed for everyone, and anyone can contribute.
+            </small>
+          </button>
+        </div>
+
         <label>
           <span>What is it for?</span>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Leaving gift for Anna"
+            placeholder={visibility === 'private' ? 'Trip to New Zealand' : 'New playground for our street'}
             maxLength={120}
           />
           <small className={titleBytes > MAX_TITLE_BYTES ? 'warn' : ''}>

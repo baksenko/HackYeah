@@ -41,7 +41,7 @@ async function main() {
   const chainNow = async () => (await connection.getBlockTime(await connection.getSlot()))!;
 
   let id = 0n;
-  const create = async (title: string, goalSol: number, secs: number) => {
+  const create = async (title: string, goalSol: number, secs: number, invite: Keypair | null = null) => {
     const campaignId = ++id;
     const idBytes = Buffer.alloc(8); idBytes.writeBigUInt64LE(campaignId);
     const campaign = PublicKey.findProgramAddressSync(
@@ -49,38 +49,51 @@ async function main() {
     const deadline = (await chainNow()) + secs;
     await program.methods.createCampaign(
       new anchor.BN(campaignId.toString()), title,
-      new anchor.BN(goalSol * LAMPORTS_PER_SOL), new anchor.BN(deadline), organizer.publicKey)
+      new anchor.BN(goalSol * LAMPORTS_PER_SOL), new anchor.BN(deadline), organizer.publicKey,
+      invite ? invite.publicKey : null)
       .accountsPartial({ organizer: organizer.publicKey, campaign, systemProgram: SystemProgram.programId })
       .rpc();
-    console.log(`created "${title}" -> ${campaign.toBase58()} (deadline +${secs}s)`);
+    console.log(`created ${invite ? "PRIVATE" : "public "} "${title}" -> ${campaign.toBase58()} (deadline +${secs}s)`);
+    if (invite) {
+      const secret = anchor.utils.bytes.bs58.encode(invite.secretKey);
+      console.log(`   invite link: http://localhost:5173/c/${campaign.toBase58()}#invite=${secret}`);
+    }
     return { campaign, deadline };
   };
 
-  const give = async (campaign: PublicKey, who: Keypair, sol: number) => {
+  const give = async (campaign: PublicKey, who: Keypair, sol: number, nickname: string, invite: Keypair | null = null) => {
     const contribution = PublicKey.findProgramAddressSync(
       [CONTRIBUTION_SEED, campaign.toBuffer(), who.publicKey.toBuffer()], program.programId)[0];
-    await program.methods.contribute(new anchor.BN(sol * LAMPORTS_PER_SOL))
-      .accountsPartial({ contributor: who.publicKey, campaign, contribution, systemProgram: SystemProgram.programId })
-      .signers([who]).rpc();
+    await program.methods.contribute(new anchor.BN(sol * LAMPORTS_PER_SOL), nickname)
+      .accountsPartial({ contributor: who.publicKey, campaign, contribution,
+        invite: invite ? invite.publicKey : null, systemProgram: SystemProgram.programId })
+      .signers(invite ? [who, invite] : [who]).rpc();
   };
 
-  // open
-  const open = await create("New coffee machine for the office", 2, 3600);
-  await give(open.campaign, bob, 0.75);
-  await give(open.campaign, carol, 0.4);
+  // public, open for 2 hours
+  const open = await create("New playground for Zielona Street", 2, 7200);
+  await give(open.campaign, bob, 0.75, "Kuba");
+  await give(open.campaign, carol, 0.4, "Ola");
 
-  // will succeed
-  const win = await create("Leaving gift for Anna", 1, 6);
-  await give(win.campaign, bob, 0.6);
-  await give(win.campaign, carol, 0.5);
+  // private, open for 2 hours
+  const tripInvite = Keypair.generate();
+  const trip = await create("Trip to New Zealand", 3, 7200, tripInvite);
+  await give(trip.campaign, bob, 1.2, "Kuba", tripInvite);
+  await give(trip.campaign, carol, 0.8, "Ola", tripInvite);
 
-  // will fail
-  const lose = await create("Ski trip deposit", 5, 6);
-  await give(lose.campaign, bob, 0.3);
+  // public, will succeed
+  const win = await create("Shelter for street cats", 1, 6);
+  await give(win.campaign, bob, 0.6, "Kuba");
+  await give(win.campaign, carol, 0.5, "Ola");
 
-  // will be withdrawn
-  const done = await create("Office plants", 1, 6);
-  await give(done.campaign, carol, 1);
+  // private, will fail
+  const loseInvite = Keypair.generate();
+  const lose = await create("Ski trip deposit", 5, 6, loseInvite);
+  await give(lose.campaign, bob, 0.3, "Kuba", loseInvite);
+
+  // public, will be withdrawn
+  const done = await create("Community garden seeds", 1, 6);
+  await give(done.campaign, carol, 1, "Ola");
 
   console.log("waiting for the short deadlines...");
   while ((await chainNow()) < done.deadline) await sleep(1000);
@@ -88,10 +101,10 @@ async function main() {
 
   await program.methods.withdraw()
     .accountsPartial({ recipient: organizer.publicKey, campaign: done.campaign }).rpc();
-  console.log("withdrew Office plants");
+  console.log("withdrew Community garden seeds");
 
   console.log("\nSTATES:");
-  for (const [label, c] of [["open", open.campaign], ["succeeded", win.campaign], ["failed", lose.campaign], ["withdrawn", done.campaign]] as const) {
+  for (const [label, c] of [["open", open.campaign], ["private", trip.campaign], ["succeeded", win.campaign], ["failed", lose.campaign], ["withdrawn", done.campaign]] as const) {
     const s: any = await program.account.campaign.fetch(c);
     console.log(` ${label.padEnd(10)} ${c.toBase58()} raised=${s.totalRaised.toNumber()/1e9} goal=${s.goal.toNumber()/1e9} withdrawn=${s.withdrawn}`);
   }

@@ -12,7 +12,10 @@ export const FundraiserErrorCode = {
   InvalidDeadline: 6009,
   MathOverflow: 6010,
   InsufficientCampaignBalance: 6011,
-  CampaignNotSettled: 6012
+  CampaignNotSettled: 6012,
+  InviteRequired: 6013,
+  InvalidInvite: 6014,
+  NicknameTooLong: 6015
 };
 
 export type FundraiserErrorName = keyof typeof FundraiserErrorCode;
