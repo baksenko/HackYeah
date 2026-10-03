@@ -246,6 +246,11 @@ legend { font-weight: 600; font-size: 14px; padding: 0 6px; }
   flex: none; padding: 10px; border-radius: 14px; background: #fff;
   border: 1px solid var(--line); line-height: 0;
 }
+.qr-targets {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 8px;
+  max-width: 196px; line-height: normal;
+}
+.qr-targets .chip { font-size: 12px; padding: 3px 8px; }
 .share-body { flex: 1 1 280px; min-width: 0; }
 .share-body .aside { margin: 0 0 12px; }
 .share-url { font-size: 12px !important; color: var(--ink-soft); background: var(--violet-soft) !important; }

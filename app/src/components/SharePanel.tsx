@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { useRef, useState } from 'react'
 
 import { shareUrl } from '../lib/invite'
+import { QR_TARGETS, isLocalOnly, qrLink, type QrTarget } from '../lib/walletLinks'
 
 /**
  * Link + QR code for inviting people. For a private campaign the link carries
@@ -18,6 +19,8 @@ export function SharePanel({
   invite: Keypair | null
 }) {
   const url = shareUrl(campaign, invite)
+  const [target, setTarget] = useState<QrTarget>('browser')
+  const qrValue = qrLink(target, url)
   const [copied, setCopied] = useState(false)
   const qrRef = useRef<HTMLDivElement>(null)
   const canNativeShare = typeof navigator !== 'undefined' && 'share' in navigator
@@ -54,15 +57,37 @@ export function SharePanel({
   return (
     <section className="panel share">
       <div className="share-qr" ref={qrRef}>
-        <QRCodeSVG value={url} size={176} level="M" marginSize={2} fgColor="#2e1065" />
+        <QRCodeSVG value={qrValue} size={176} level="M" marginSize={2} fgColor="#2e1065" />
+        <div className="qr-targets" role="radiogroup" aria-label="Where the QR code opens">
+          {QR_TARGETS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="radio"
+              aria-checked={target === t.id}
+              className={`chip ${target === t.id ? 'chip-on' : ''}`}
+              onClick={() => setTarget(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="share-body">
         <h2>{invite ? 'Invite your friends' : 'Share this campaign'}</h2>
         <p className="aside">
           {invite
             ? 'This link is the key to the campaign. Anyone who has it — or scans the QR code — can contribute, so send it only to the people you want in.'
-            : 'Anyone can open this link or scan the code to see the campaign and chip in.'}
+            : 'Anyone can open this link or scan the code to see the campaign and chip in.'}{' '}
+          {target !== 'browser' &&
+            `Scanned with a phone camera, the code opens this page inside the ${target === 'phantom' ? 'Phantom' : 'Solflare'} app, ready to contribute.`}
         </p>
+        {isLocalOnly(url) && (
+          <p className="aside warn">
+            This app is running on this computer, so a phone cannot open the link yet. It works
+            once the app is hosted somewhere public.
+          </p>
+        )}
         <input className="share-url mono" value={url} readOnly onFocus={(e) => e.currentTarget.select()} />
         <div className="share-actions">
           <button className="button button-primary" onClick={() => void copy()}>

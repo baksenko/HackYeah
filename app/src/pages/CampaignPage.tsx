@@ -21,6 +21,7 @@ import {
   type Campaign,
   type Contribution,
 } from '../lib/campaign'
+import { buildContributeTransaction } from '../lib/actions'
 import { CLUSTER_LABEL } from '../lib/cluster'
 import { PERMISSIONS, whatCanHappenNow } from '../lib/explain'
 import { CONTRIBUTION_ACCOUNT_SPACE, TOKEN_ACCOUNT_SPACE, accountDeposit, networkFee } from '../lib/fees'
@@ -226,18 +227,14 @@ export function CampaignPage() {
    * changed it since the page loaded, the program refuses the contribution.
    */
   const buildContribute = async (units: BN, withInvite = true) =>
-    program.methods
-      .contribute(units, nickname.trim(), campaign.recipient)
-      .accountsPartial({
-        contributor: me!,
-        campaign: campaign.address,
-        contribution: contributionPda(campaign.address, me!),
-        mint: USDC_MINT,
-        contributorToken: tokenAccountOf(me!),
-        vault,
-        invite: withInvite && invite ? invite.publicKey : null,
-      })
-      .transaction()
+    buildContributeTransaction(program, {
+      campaign: campaign.address,
+      expectedRecipient: campaign.recipient,
+      contributor: me!,
+      amount: units,
+      nickname: nickname.trim(),
+      invite: withInvite && invite ? invite.publicKey : null,
+    })
 
   /**
    * Permissionless: whoever signs, the money only ever goes to the stored
@@ -772,6 +769,11 @@ export function CampaignPage() {
         </table>
         <p className="aside">
           Held on chain at <Address address={campaignAddress} explorer />
+        </p>
+        <p className="notice notice-blocked">
+          <strong>Don&apos;t send USDC straight to this address.</strong> Use Contribute above.
+          Money sent directly lands in the campaign without a receipt: it does not count toward
+          the goal, and if the goal is missed you cannot get it back.
         </p>
       </section>
     </article>
