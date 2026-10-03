@@ -217,6 +217,21 @@ legend { font-weight: 600; font-size: 14px; padding: 0 6px; }
 .amount-row label { flex: 1 1 170px; }
 .locked > p { margin: 0; }
 
+/* ------------------------------------------------------------------ review */
+.review {
+  display: grid; gap: 12px; padding: 16px; border-radius: 8px;
+  background: #f4f7ff; border: 1px solid #d4def9;
+}
+.review h3 { margin: 0; font-size: 15px; }
+.review-party { margin: 0; display: grid; gap: 2px; font-size: 14px; }
+.review .table { background: #fff; border-radius: 8px; }
+.review-note { display: block; }
+.review-total td { font-weight: 600; }
+.review-facts { margin: 0; padding-left: 20px; color: var(--ink-soft); font-size: 14px; }
+.review-facts li { margin-bottom: 4px; }
+.review-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.review .aside { margin: 0; }
+
 /* ------------------------------------------------------------------- demo */
 .demo {
   margin-top: 18px; padding: 16px; border: 1.5px dashed #ffc4c4;
@@ -259,6 +274,10 @@ legend { font-weight: 600; font-size: 14px; padding: 0 6px; }
 .campaign-head { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
 .campaign-head h1 { margin: 0 0 4px; font-size: clamp(26px, 4vw, 36px); letter-spacing: -0.02em; }
 .campaign-sub { margin: 0 0 14px; color: var(--ink-soft); font-size: 14px; }
+.campaign-head > div { min-width: 0; }
+.campaign-parties { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; }
+.campaign-parties dt { font-weight: 600; }
+.campaign-parties dd { margin: 0; min-width: 0; }
 .countdown { margin: 0 0 20px; color: var(--ink-soft); font-size: 14px; }
 .back { display: inline-block; margin: 4px 0 16px; font-size: 14px; font-weight: 600; text-decoration: none; }
 .empty { color: var(--ink-soft); }
@@ -267,6 +286,9 @@ legend { font-weight: 600; font-size: 14px; padding: 0 6px; }
 .small { font-size: 12px; }
 .you { color: var(--ok); font-size: 12px; font-weight: 700; }
 code { background: var(--violet-soft); padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+.address { display: inline; }
+.address-text { overflow-wrap: anywhere; }
+.address-actions { display: inline-flex; gap: 10px; margin-left: 8px; font-size: 13px; white-space: nowrap; }
 .footer { margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--line); }
 .footer p { color: var(--ink-soft); font-size: 13px; margin: 0; }
 

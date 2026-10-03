@@ -5,12 +5,15 @@ import { Keypair, PublicKey, SystemProgram } from '@solana/web3.js'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { Address } from '../components/Address'
+import { ReviewPanel, type ReviewView } from '../components/ReviewPanel'
 import { TxResult } from '../components/TxResult'
+import { CAMPAIGN_ACCOUNT_SPACE, accountDeposit, networkFee } from '../lib/fees'
 import { encodeInvite, rememberInvite } from '../lib/invite'
 import { MAX_TITLE_BYTES, campaignPda, useProgram } from '../lib/program'
 import { MAX_TAGS, encodeTags, tagsForScope, type Tag } from '../lib/tags'
 import { sendTransaction, type TxOutcome } from '../lib/send'
-import { solToLamports } from '../lib/format'
+import { formatSol, solToLamports } from '../lib/format'
 import { useChainClock } from '../lib/useChainClock'
 
 const PRESETS = [
@@ -20,6 +23,19 @@ const PRESETS = [
   { label: '1 week', seconds: 604_800 },
   { label: 'Custom…', seconds: 0 },
 ] as const
+
+/** A validated campaign waiting for the organizer to confirm its costs. */
+type Draft = {
+  campaignId: bigint
+  campaign: PublicKey
+  title: string
+  goalLamports: BN
+  seconds: number
+  recipientKey: PublicKey
+  invite: Keypair | null
+  tags: number
+  view: ReviewView
+}
 
 export function CreateCampaignPage() {
   const program = useProgram()
@@ -38,9 +54,38 @@ export function CreateCampaignPage() {
   const [busy, setBusy] = useState(false)
   const [outcome, setOutcome] = useState<TxOutcome | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [draft, setDraft] = useState<Draft | null>(null)
 
   const titleBytes = new TextEncoder().encode(title).length
   const connectedKey = wallet.publicKey?.toBase58() ?? ''
+
+  /** The address that will actually be written, or null while it is not a valid key. */
+  const resolvedRecipient = (() => {
+    if (!recipient.trim()) return connectedKey || null
+    try {
+      return new PublicKey(recipient.trim()).toBase58()
+    } catch {
+      return null
+    }
+  })()
+
+  const build = (d: Omit<Draft, 'view'>, organizer: PublicKey, nowSeconds: number) =>
+    program.methods
+      .createCampaign(
+        new BN(d.campaignId.toString()),
+        d.title,
+        d.goalLamports,
+        new BN(nowSeconds + d.seconds),
+        d.recipientKey,
+        d.invite?.publicKey ?? null,
+        d.tags,
+      )
+      .accountsPartial({
+        organizer,
+        campaign: d.campaign,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction()
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -85,42 +130,76 @@ export function CreateCampaignPage() {
 
     // A fresh id per campaign so one organizer can run many of them.
     const campaignId = BigInt(Date.now())
-    const campaign = campaignPda(wallet.publicKey, campaignId)
-    // A private campaign gets a fresh invite key. Only its public half goes on
-    // chain; the secret half becomes the share link.
-    const invite = visibility === 'private' ? Keypair.generate() : null
+    const next: Omit<Draft, 'view'> = {
+      campaignId,
+      campaign: campaignPda(wallet.publicKey, campaignId),
+      title: title.trim(),
+      goalLamports,
+      seconds,
+      recipientKey,
+      // A private campaign gets a fresh invite key. Only its public half goes
+      // on chain; the secret half becomes the share link.
+      invite: visibility === 'private' ? Keypair.generate() : null,
+      tags: encodeTags(tags),
+    }
 
     setBusy(true)
     try {
-      const transaction = await program.methods
-        .createCampaign(
-          new BN(campaignId.toString()),
-          title.trim(),
-          goalLamports,
-          new BN(now + seconds),
-          recipientKey,
-          invite?.publicKey ?? null,
-          encodeTags(tags),
-        )
-        .accountsPartial({
-          organizer: wallet.publicKey,
-          campaign,
-          systemProgram: SystemProgram.programId,
-        })
-        .transaction()
+      const organizer = wallet.publicKey
+      const [fee, deposit] = await Promise.all([
+        build(next, organizer, now).then((tx) => networkFee(connection, tx, organizer)),
+        accountDeposit(connection, CAMPAIGN_ACCOUNT_SPACE),
+      ])
+      setDraft({
+        ...next,
+        view: {
+          heading: 'Review your campaign',
+          parties: [
+            { label: 'Recipient, fixed forever', address: recipientKey.toBase58() },
+            { label: 'New campaign account that will hold the money', address: next.campaign.toBase58() },
+          ],
+          lines: [
+            {
+              label: 'Campaign account deposit',
+              lamports: deposit,
+              direction: 'out',
+              note: 'Kept in the campaign account while it exists. The program can return it to you once everything is settled, but this app has no button for that yet.',
+            },
+            { label: 'Network fee', lamports: fee, direction: 'out' },
+          ],
+          facts: [
+            'The name, goal, deadline, recipient, tags and who can join can never be changed after this, not by you and not by us.',
+            `Goal: ${formatSol(goalLamports)}. The deadline is counted from the moment you confirm.`,
+            'Creating the campaign moves none of your money apart from the deposit and the fee.',
+          ],
+          confirmLabel: 'Confirm and create campaign',
+        },
+      })
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : 'Could not prepare the transaction.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
+  /** Signs and sends exactly what was reviewed, with the deadline counted from now. */
+  async function confirm() {
+    if (!draft || !wallet.publicKey || !wallet.signTransaction) return
+    setBusy(true)
+    try {
       const result = await sendTransaction(
         connection,
         { publicKey: wallet.publicKey, signTransaction: wallet.signTransaction },
-        transaction,
+        await build(draft, wallet.publicKey, now),
       )
       setOutcome(result)
+      setDraft(null)
       if (result.kind === 'success') {
-        if (invite) {
-          rememberInvite(campaign, invite)
-          navigate(`/c/${campaign.toBase58()}#invite=${encodeInvite(invite)}`)
+        if (draft.invite) {
+          rememberInvite(draft.campaign, draft.invite)
+          navigate(`/c/${draft.campaign.toBase58()}#invite=${encodeInvite(draft.invite)}`)
         } else {
-          navigate(`/c/${campaign.toBase58()}`)
+          navigate(`/c/${draft.campaign.toBase58()}`)
         }
       }
     } finally {
@@ -146,7 +225,12 @@ export function CreateCampaignPage() {
         afterwards — not by you, not by us.
       </p>
 
-      <form onSubmit={submit} className="form">
+      {/*
+        Editing any field discards the review, so what is signed always matches
+        the form. Inputs reach this through onChange; the visibility and tag
+        buttons clear it themselves.
+      */}
+      <form onSubmit={submit} onChange={() => setDraft(null)} className="form">
         <div className="visibility">
           <button
             type="button"
@@ -154,6 +238,7 @@ export function CreateCampaignPage() {
             onClick={() => {
               setVisibility('private')
               setTags([])
+              setDraft(null)
             }}
           >
             <span className="visibility-icon">🔒</span>
@@ -169,6 +254,7 @@ export function CreateCampaignPage() {
             onClick={() => {
               setVisibility('public')
               setTags([])
+              setDraft(null)
             }}
           >
             <span className="visibility-icon">🌍</span>
@@ -205,9 +291,10 @@ export function CreateCampaignPage() {
                   className={`chip ${on ? 'chip-on' : ''}`}
                   aria-pressed={on}
                   disabled={full}
-                  onClick={() =>
+                  onClick={() => {
                     setTags((cur) => (on ? cur.filter((t) => t.bit !== tag.bit) : [...cur, tag]))
-                  }
+                    setDraft(null)
+                  }}
                 >
                   {tag.emoji} {tag.label}
                 </button>
@@ -272,12 +359,36 @@ export function CreateCampaignPage() {
           </small>
         </label>
 
+        {resolvedRecipient ? (
+          <div className={`notice ${resolvedRecipient === connectedKey ? '' : 'notice-blocked'}`}>
+            <strong>
+              {resolvedRecipient === connectedKey
+                ? 'The money will go to your connected wallet:'
+                : 'The money will go to this address — not your connected wallet. Check every character:'}
+            </strong>
+            <Address address={resolvedRecipient} />
+          </div>
+        ) : (
+          recipient.trim() && (
+            <p className="notice notice-error">That is not a valid Solana address yet.</p>
+          )
+        )}
+
         {formError && <p className="notice notice-error">{formError}</p>}
         {outcome && <TxResult outcome={outcome} onDismiss={() => setOutcome(null)} />}
 
-        <button type="submit" className="button button-primary" disabled={busy}>
-          {busy ? 'Creating…' : 'Create campaign'}
-        </button>
+        {draft ? (
+          <ReviewPanel
+            view={draft.view}
+            busy={busy}
+            onConfirm={() => void confirm()}
+            onBack={() => setDraft(null)}
+          />
+        ) : (
+          <button type="submit" className="button button-primary" disabled={busy}>
+            {busy ? 'Preparing…' : 'Review and create'}
+          </button>
+        )}
       </form>
     </section>
   )

@@ -2,7 +2,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { useCallback, useEffect, useState } from 'react'
 
-import { CLUSTER_LABEL, IS_DEVNET } from '../lib/cluster'
+import { CLUSTER_LABEL, IS_DEVNET, RPC_ENDPOINT } from '../lib/cluster'
 import { formatSol } from '../lib/format'
 
 /** Below this, a wallet cannot realistically pay for a campaign plus fees. */
@@ -66,6 +66,12 @@ export function WalletBalance() {
   if (!publicKey) return null
 
   const isLow = lamports !== null && lamports < LOW_BALANCE_LAMPORTS
+  /**
+   * Wallet adapters do not tell the page which network the wallet itself is
+   * set to, so a wallet that holds exactly nothing here is the best signal we
+   * have that it is pointed somewhere else.
+   */
+  const isEmpty = lamports === 0
 
   return (
     <div className="balance">
@@ -77,7 +83,23 @@ export function WalletBalance() {
           {busy ? 'Adding…' : 'Get test SOL'}
         </button>
       </div>
-      {isLow && (
+      {isEmpty && (
+        <div className="notice notice-blocked">
+          <strong>Your wallet has no SOL on the {CLUSTER_LABEL}.</strong>
+          <p>
+            If your wallet app shows a balance, it is probably set to a different network than
+            this page, and that balance does not exist here. This page cannot see your
+            wallet&apos;s network setting, so please check it:
+          </p>
+          <p>
+            In Phantom: Settings → Developer Settings → Testnet Mode, then set Solana to{' '}
+            <strong>{IS_DEVNET ? 'Devnet' : `Localnet (${RPC_ENDPOINT})`}</strong>. Solflare has the
+            same option in its network settings.
+          </p>
+          <p>Then click “Get test SOL” above.</p>
+        </div>
+      )}
+      {isLow && !isEmpty && (
         <p className="balance-warning">
           This wallet has almost no SOL on the {CLUSTER_LABEL}. Click “Get test SOL” before
           creating a campaign or contributing.
