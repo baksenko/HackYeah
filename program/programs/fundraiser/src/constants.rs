@@ -18,8 +18,10 @@ pub const MAX_TAGS: u32 = 5;
 /// Maximum contributor nickname length, in bytes.
 pub const MAX_NICKNAME_LEN: usize = 32;
 
-/// Maximum campaign description length, in bytes.
-pub const MAX_DESCRIPTION_LEN: usize = 500;
+/// Maximum campaign description length, in bytes. Kept small enough that a
+/// campaign with every field at its maximum still fits in one transaction
+/// (1232 bytes), with room left for instructions a wallet may add.
+pub const MAX_DESCRIPTION_LEN: usize = 300;
 
 /// Maximum campaign image link length, in bytes.
 pub const MAX_IMAGE_URL_LEN: usize = 200;

@@ -156,7 +156,7 @@ an instruction does not exist, nobody can call it.
 
 | Instruction | Who may sign | Conditions enforced on chain | Rejects with |
 |---|---|---|---|
-| `create_campaign` | Anyone (becomes the organiser) | `goal > 0`, `deadline > now`, title ≤ 64 bytes, ≤ 5 tags, description ≤ 500 bytes, image link empty or `https://` and ≤ 200 bytes; optional invite key makes it private | `InvalidGoal`, `InvalidDeadline`, `TitleTooLong`, `TooManyTags`, `DescriptionTooLong`, `ImageUrlTooLong`, `InvalidImageUrl` |
+| `create_campaign` | Anyone (becomes the organiser) | `goal > 0`, `deadline > now`, title ≤ 64 bytes, ≤ 5 tags, description ≤ 300 bytes, image link empty or `https://` and ≤ 200 bytes; optional invite key makes it private | `InvalidGoal`, `InvalidDeadline`, `TitleTooLong`, `TooManyTags`, `DescriptionTooLong`, `ImageUrlTooLong`, `InvalidImageUrl` |
 | `contribute` | Anyone (public) · only holders of the invite link (private) | `now < deadline`, `amount > 0`, nickname ≤ 32 bytes, and for private campaigns the invite key must co-sign | `DeadlinePassed`, `InvalidAmount`, `NicknameTooLong`, `InviteRequired`, `InvalidInvite` |
 | `withdraw` | **Only `campaign.recipient`** | `now ≥ deadline`, `total_raised ≥ goal`, `!withdrawn` | `NotRecipient`, `DeadlineNotReached`, `GoalNotReached`, `AlreadyWithdrawn` |
 | `refund` | **Only the contributor of that `Contribution`** | `now ≥ deadline`, `total_raised < goal` | `DeadlineNotReached`, `GoalReached` |

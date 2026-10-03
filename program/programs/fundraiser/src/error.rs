@@ -34,7 +34,7 @@ pub enum FundraiserError {
     NicknameTooLong,
     #[msg("A campaign can have at most 5 tags")]
     TooManyTags,
-    #[msg("Description must be at most 500 bytes")]
+    #[msg("Description must be at most 300 bytes")]
     DescriptionTooLong,
     #[msg("Image link must be at most 200 bytes")]
     ImageUrlTooLong,
