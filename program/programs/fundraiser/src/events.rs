@@ -25,6 +25,34 @@ pub struct Contributed {
     pub goal_reached: bool,
 }
 
+/// Emitted by `withdraw`. `caller` is whoever triggered it; the money always
+/// goes to `recipient`.
+#[event]
+pub struct Withdrawn {
+    pub campaign: Pubkey,
+    pub recipient: Pubkey,
+    pub amount: u64,
+    pub caller: Pubkey,
+    /// The Solana Pay reference key, if one was passed.
+    pub reference: Option<Pubkey>,
+}
+
+/// Emitted by `refund`.
+#[event]
+pub struct Refunded {
+    pub campaign: Pubkey,
+    pub contributor: Pubkey,
+    pub amount: u64,
+    pub total_refunded: u64,
+}
+
+/// Emitted by `cancel`.
+#[event]
+pub struct Cancelled {
+    pub campaign: Pubkey,
+    pub total_raised: u64,
+}
+
 /// Emitted by `update_recipient`, which is only possible before anyone has
 /// contributed.
 #[event]

@@ -123,3 +123,70 @@ export async function contribute(
     .signers(o.invite ? [contributor, o.invite] : [contributor])
     .rpc();
 }
+
+export type WithdrawOptions = {
+  /** Solana Pay reference key, passed read-only. */
+  reference?: PublicKey;
+  /** Overrides, to test that the program refuses them. */
+  recipient?: PublicKey;
+  recipientToken?: PublicKey;
+  vault?: PublicKey;
+};
+
+/** Calls withdraw, signed and paid for by `caller` (anyone). */
+export async function withdraw(h: Harness, campaign: PublicKey, caller: Keypair, o: WithdrawOptions = {}) {
+  const state = await h.program.account.campaign.fetch(campaign);
+  const recipient = o.recipient ?? state.recipient;
+  return h.program.methods
+    .withdraw()
+    .accountsPartial({
+      caller: caller.publicKey,
+      campaign,
+      recipient,
+      mint: state.mint,
+      vault: o.vault ?? vaultOf(campaign, state.mint),
+      recipientToken: o.recipientToken ?? tokenAccountOf(recipient, state.mint),
+      reference: o.reference ?? null,
+    })
+    .signers([caller])
+    .rpc();
+}
+
+export type RefundOptions = {
+  /** Whose receipt to claim (defaults to the caller's own). */
+  receiptOf?: PublicKey;
+  contributorToken?: PublicKey;
+  vault?: PublicKey;
+};
+
+export async function refund(h: Harness, campaign: PublicKey, contributor: Keypair, o: RefundOptions = {}) {
+  const state = await h.program.account.campaign.fetch(campaign);
+  return h.program.methods
+    .refund()
+    .accountsPartial({
+      contributor: contributor.publicKey,
+      campaign,
+      contribution: contributionPda(h, campaign, o.receiptOf ?? contributor.publicKey),
+      mint: state.mint,
+      vault: o.vault ?? vaultOf(campaign, state.mint),
+      contributorToken: o.contributorToken ?? tokenAccountOf(contributor.publicKey, state.mint),
+    })
+    .signers([contributor])
+    .rpc();
+}
+
+export function cancel(h: Harness, campaign: PublicKey, organizer: Keypair) {
+  return h.program.methods
+    .cancel()
+    .accountsPartial({ organizer: organizer.publicKey, campaign })
+    .signers([organizer])
+    .rpc();
+}
+
+export function closeCampaign(h: Harness, campaign: PublicKey, organizer: Keypair) {
+  return h.program.methods
+    .closeCampaign()
+    .accountsPartial({ organizer: organizer.publicKey, campaign, vault: vaultOf(campaign) })
+    .signers([organizer])
+    .rpc();
+}

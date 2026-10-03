@@ -1,10 +1,12 @@
 //! # Fundraiser
 //!
-//! A group fundraiser with no middleman. Contributions are locked in a
-//! program-owned account. If the goal is reached by the deadline, only the
-//! recipient named at creation can withdraw. If it is not, every contributor
-//! can reclaim exactly what they paid in. Nothing here can be edited after a
-//! campaign is created, and there is no admin, no fee and no pause switch.
+//! A group fundraiser with no middleman, in USDC. Contributions are locked
+//! in the campaign's vault, which only this program can move. Once the goal is
+//! reached, anyone can trigger the payout -- and it can only go to the stored
+//! recipient. If the goal is missed by the deadline, or the organizer cancels
+//! before it is reached, every contributor can take back exactly what they
+//! paid in. The recipient is locked by the first contribution; goal, deadline
+//! and mint can never change. There is no admin, no fee and no pause switch.
 
 
 pub mod constants;
@@ -71,17 +73,25 @@ pub mod fundraiser {
         instructions::contribute::handle_contribute(ctx, amount, nickname, expected_recipient)
     }
 
-    /// Take the pot. Signer: the recipient only, after a successful deadline.
+    /// Pay the whole vault to the stored recipient once the goal is reached,
+    /// even before the deadline. Signer: anyone (permissionless).
     pub fn withdraw(ctx: Context<Withdraw>) -> Result<()> {
         instructions::withdraw::handle_withdraw(ctx)
     }
 
-    /// Take your own money back. Signer: a contributor, after a failed deadline.
+    /// Take your own money back. Signer: that contributor, once the deadline
+    /// passed without reaching the goal, or the campaign was cancelled.
     pub fn refund(ctx: Context<Refund>) -> Result<()> {
         instructions::refund::handle_refund(ctx)
     }
 
-    /// Reclaim the rent deposit once everything is settled. Signer: the organizer.
+    /// Call the campaign off before its goal is reached, opening refunds.
+    /// Signer: the organizer.
+    pub fn cancel(ctx: Context<Cancel>) -> Result<()> {
+        instructions::cancel::handle_cancel(ctx)
+    }
+
+    /// Reclaim the rent deposits once everything is settled. Signer: the organizer.
     pub fn close_campaign(ctx: Context<CloseCampaign>) -> Result<()> {
         instructions::close_campaign::handle_close_campaign(ctx)
     }

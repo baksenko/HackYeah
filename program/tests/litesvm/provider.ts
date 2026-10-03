@@ -111,6 +111,9 @@ export class LiteSVMProvider implements anchor.Provider {
     // takes the serialized bytes we already have.
     const inner = (this.svm as any).inner;
     const res = versioned ? inner.sendVersionedTransaction(raw) : inner.sendLegacyTransaction(raw);
+    // Every later transaction gets a fresh blockhash, so repeating a call is
+    // a new transaction rather than a duplicate (AlreadyProcessed).
+    this.svm.expireBlockhash();
     if (res instanceof FailedTransactionMetadata) {
       const logs = res.meta().logs();
       throw new SendTransactionError({

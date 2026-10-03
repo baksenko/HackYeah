@@ -24,8 +24,6 @@ pub enum FundraiserError {
     InvalidDeadline,
     #[msg("Arithmetic overflow")]
     MathOverflow,
-    #[msg("Campaign balance would drop below its rent-exempt reserve")]
-    InsufficientCampaignBalance,
     #[msg("Campaign can only be closed after a withdrawal or after every contribution was refunded")]
     CampaignNotSettled,
     #[msg("This campaign is private: contributing requires the organizer's invite link")]
@@ -54,4 +52,6 @@ pub enum FundraiserError {
     InvalidRecipient,
     #[msg("The recipient changed since you looked; check the campaign again")]
     RecipientChanged,
+    #[msg("The campaign was cancelled; contributors can take their money back")]
+    CampaignCancelled,
 }
