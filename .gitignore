@@ -1,0 +1,24 @@
+# Rust / Anchor
+program/target/
+program/.anchor/
+program/test-ledger/
+**/*.rs.bk
+
+# Node
+node_modules/
+app/dist/
+app/.vite/
+
+# Local env / secrets
+.env
+.env.local
+*.local
+wallets/*.json
+!wallets/.gitkeep
+
+# OS
+.DS_Store
+
+# Anchor generates this on first build; keep it out of git but DO back it up
+# if you want to redeploy to the same program ID.
+program/target/deploy/*-keypair.json
