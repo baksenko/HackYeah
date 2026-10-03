@@ -1,23 +1,36 @@
-// Fills a LOCAL validator with campaigns in all four states (open, succeeded,
-// failed, withdrawn) so the UI can be checked without waiting around.
+// Fills a LOCAL validator with USDC campaigns in every state the app shows
+// (open, goal reached, goal missed, cancelled, paid out) so the UI can be
+// checked without waiting around.
 //
-//   solana-test-validator --ledger program/test-ledger --reset --quiet
-//   solana program deploy --url localhost \
-//     --program-id program/target/deploy/fundraiser-keypair.json \
-//     program/target/deploy/fundraiser.so
+//   solana-test-validator --ledger program/test-ledger --reset --quiet \
+//     --bpf-program <PROGRAM_ID> program/target/deploy/fundraiser.so
 //   ./scripts/seed-local.sh
-//   cd ../app && VITE_RPC_ENDPOINT=http://127.0.0.1:8899 npm run dev
+//   cd app && VITE_RPC_ENDPOINT=http://127.0.0.1:8899 npm run dev
 //
-// Local only. The devnet demo is driven through the UI with real wallets.
+// Local only. It creates the localnet test-USDC mint at the address the
+// localnet build of the program expects (USDC_MINT in constants.rs). That
+// mint's key comes from a public seed, so anyone can mint test USDC on a
+// local validator -- which is the point: it is play money.
 import * as anchor from "@coral-xyz/anchor";
-import { Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  createMint,
+  getAssociatedTokenAddressSync,
+  getOrCreateAssociatedTokenAccount,
+  mintTo,
+} from "@solana/spl-token";
+import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { createHash } from "crypto";
 import fs from "fs";
 
 const RPC = "http://127.0.0.1:8899";
 const idl = JSON.parse(fs.readFileSync(new URL("../program/target/idl/fundraiser.json", import.meta.url), "utf8"));
 const CAMPAIGN_SEED = Buffer.from("campaign");
 const CONTRIBUTION_SEED = Buffer.from("contribution");
+const USDC = 1_000_000; // 6 decimals
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** The localnet test-USDC mint: its own key is also its mint authority. */
+const TEST_USDC = Keypair.fromSeed(createHash("sha256").update("chip-in:localnet-test-usdc:v1").digest());
 
 async function main() {
   const connection = new anchor.web3.Connection(RPC, "confirmed");
@@ -27,21 +40,35 @@ async function main() {
   const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(organizer), { commitment: "confirmed" });
   const program = new anchor.Program(idl, provider);
 
-  const fund = async (kp: Keypair, sol: number) => {
+  const expectedMint = String(idl.constants.find((c: any) => c.name === "USDC_MINT")?.value);
+  if (expectedMint !== TEST_USDC.publicKey.toBase58()) {
+    throw new Error(`This program build expects USDC mint ${expectedMint}; seed only a localnet build.`);
+  }
+
+  if (!(await connection.getAccountInfo(TEST_USDC.publicKey))) {
+    await createMint(connection, organizer, TEST_USDC.publicKey, null, 6, TEST_USDC);
+    console.log("created test USDC mint", TEST_USDC.publicKey.toBase58());
+  }
+
+  const fundSol = async (kp: Keypair, sol: number) => {
     const sig = await connection.requestAirdrop(kp.publicKey, sol * LAMPORTS_PER_SOL);
     const bh = await connection.getLatestBlockhash();
     await connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
   };
+  const fundUsdc = async (owner: PublicKey, usdc: number) => {
+    const ata = await getOrCreateAssociatedTokenAccount(connection, organizer, TEST_USDC.publicKey, owner);
+    await mintTo(connection, organizer, TEST_USDC.publicKey, ata.address, TEST_USDC, BigInt(usdc * USDC));
+  };
 
-  const bob = Keypair.generate(); await fund(bob, 20);
-  const carol = Keypair.generate(); await fund(carol, 20);
+  const bob = Keypair.generate(); await fundSol(bob, 5); await fundUsdc(bob.publicKey, 5000);
+  const carol = Keypair.generate(); await fundSol(carol, 5); await fundUsdc(carol.publicKey, 5000);
   console.log("bob  ", bob.publicKey.toBase58());
   console.log("carol", carol.publicKey.toBase58());
 
   const chainNow = async () => (await connection.getBlockTime(await connection.getSlot()))!;
 
   let id = 0n;
-  const create = async (title: string, goalSol: number, secs: number, invite: Keypair | null = null, tagBits: number[] = [], description = "", imageUrl = "") => {
+  const create = async (title: string, goalUsdc: number, secs: number, invite: Keypair | null = null, tagBits: number[] = [], description = "", imageUrl = "") => {
     const tags = tagBits.reduce((m, b) => (m | (1 << b)) >>> 0, 0);
     const campaignId = ++id;
     const idBytes = Buffer.alloc(8); idBytes.writeBigUInt64LE(campaignId);
@@ -50,11 +77,11 @@ async function main() {
     const deadline = (await chainNow()) + secs;
     await program.methods.createCampaign(
       new anchor.BN(campaignId.toString()), title,
-      new anchor.BN(goalSol * LAMPORTS_PER_SOL), new anchor.BN(deadline), organizer.publicKey,
+      new anchor.BN(goalUsdc * USDC), new anchor.BN(deadline), organizer.publicKey,
       invite ? invite.publicKey : null, tags, description, imageUrl)
-      .accountsPartial({ organizer: organizer.publicKey, campaign, systemProgram: SystemProgram.programId })
+      .accountsPartial({ organizer: organizer.publicKey, campaign, mint: TEST_USDC.publicKey })
       .rpc();
-    console.log(`created ${invite ? "PRIVATE" : "public "} "${title}" -> ${campaign.toBase58()} (deadline +${secs}s)`);
+    console.log(`created ${invite ? "PRIVATE" : "public "} "${title}" -> ${campaign.toBase58()} (goal ${goalUsdc} USDC, deadline +${secs}s)`);
     if (invite) {
       const secret = anchor.utils.bytes.bs58.encode(invite.secretKey);
       console.log(`   invite link: http://localhost:5173/c/${campaign.toBase58()}#invite=${secret}`);
@@ -62,14 +89,28 @@ async function main() {
     return { campaign, deadline };
   };
 
-  const give = async (campaign: PublicKey, who: Keypair, sol: number, nickname: string, invite: Keypair | null = null) => {
+  const give = async (campaign: PublicKey, who: Keypair, usdc: number, nickname: string, invite: Keypair | null = null) => {
     const contribution = PublicKey.findProgramAddressSync(
       [CONTRIBUTION_SEED, campaign.toBuffer(), who.publicKey.toBuffer()], program.programId)[0];
-    await program.methods.contribute(new anchor.BN(sol * LAMPORTS_PER_SOL), nickname)
-      .accountsPartial({ contributor: who.publicKey, campaign, contribution,
-        invite: invite ? invite.publicKey : null, systemProgram: SystemProgram.programId })
+    await program.methods.contribute(new anchor.BN(usdc * USDC), nickname, organizer.publicKey)
+      .accountsPartial({
+        contributor: who.publicKey, campaign, contribution, mint: TEST_USDC.publicKey,
+        contributorToken: getAssociatedTokenAddressSync(TEST_USDC.publicKey, who.publicKey),
+        vault: getAssociatedTokenAddressSync(TEST_USDC.publicKey, campaign, true),
+        invite: invite ? invite.publicKey : null,
+      })
       .signers(invite ? [who, invite] : [who]).rpc();
   };
+
+  const payOut = (campaign: PublicKey) =>
+    program.methods.withdraw()
+      .accountsPartial({
+        caller: organizer.publicKey, campaign, recipient: organizer.publicKey, mint: TEST_USDC.publicKey,
+        vault: getAssociatedTokenAddressSync(TEST_USDC.publicKey, campaign, true),
+        recipientToken: getAssociatedTokenAddressSync(TEST_USDC.publicKey, organizer.publicKey),
+        reference: null,
+      })
+      .rpc();
 
   // Tag bits — see app/src/lib/tags.ts.
   const T = {
@@ -79,59 +120,59 @@ async function main() {
   const H2 = 7200;
 
   // ---- public, open
-  const open = await create("New playground for Zielona Street", 2, H2, null, [T.community, T.localBusiness],
-    "The old swings were removed last spring and nothing replaced them. We want a small playground with swings, a slide and a sandpit on the green at the end of Zielona Street. The council has agreed to install it if we cover the equipment.");
-  await give(open.campaign, bob, 0.75, "Kuba");
-  await give(open.campaign, carol, 0.4, "Ola");
+  const open = await create("New playground for Zielona Street", 2000, H2, null, [T.community, T.localBusiness],
+    "The old swings were removed and nothing replaced them. We want swings, a slide and a sandpit on the green at the end of Zielona Street. The council installs it if we cover the equipment.");
+  await give(open.campaign, bob, 750, "Kuba");
+  await give(open.campaign, carol, 400, "Ola");
 
-  const laptops = await create("Laptops for the village school", 4, H2, null, [T.education, T.tech],
+  const laptops = await create("Laptops for the village school", 1600, H2, null, [T.education, T.tech],
     "Our school shares six old laptops between 80 pupils. Four refurbished laptops would let a whole class do computer lessons at once.");
-  await give(laptops.campaign, carol, 2.5, "Ola");
+  await give(laptops.campaign, carol, 1000, "Ola");
 
-  const clinic = await create("Flood relief for the local clinic", 3, H2, null, [T.medical, T.emergency, T.community],
-    "Last week's flood ruined the clinic's ground floor. This covers new flooring and a replacement fridge for vaccines, so the clinic can reopen.");
-  await give(clinic.campaign, bob, 0.5, "Kuba");
+  const clinic = await create("Flood relief for the local clinic", 3000, H2, null, [T.medical, T.emergency, T.community],
+    "Last week's flood ruined the clinic's ground floor. This covers new flooring and a vaccine fridge, so the clinic can reopen.");
+  await give(clinic.campaign, bob, 500, "Kuba");
 
   // ---- private, open
   const tripInvite = Keypair.generate();
-  const trip = await create("Trip to New Zealand", 3, H2, tripInvite, [T.trip],
+  const trip = await create("Trip to New Zealand", 3000, H2, tripInvite, [T.trip],
     "Shared deposit for the campervan and the first two nights. Everyone chips in the same amount.");
-  await give(trip.campaign, bob, 1.2, "Kuba", tripInvite);
-  await give(trip.campaign, carol, 0.8, "Ola", tripInvite);
+  await give(trip.campaign, bob, 1200, "Kuba", tripInvite);
+  await give(trip.campaign, carol, 800, "Ola", tripInvite);
 
   const giftInvite = Keypair.generate();
-  const gift = await create("Anna's 30th birthday present", 1.5, H2, giftInvite, [T.gift, T.birthday],
+  const gift = await create("Anna's 30th birthday present", 150, H2, giftInvite, [T.gift, T.birthday],
     "A weekend at the spa she keeps talking about. Keep it a secret!");
-  await give(gift.campaign, carol, 0.3, "Ola", giftInvite);
+  await give(gift.campaign, carol, 30, "Ola", giftInvite);
 
-  const sofaInvite = Keypair.generate();
-  const sofa = await create("New sofa for the flat", 2, H2, sofaInvite, [T.flatmates, T.sharedPurchase]);
-  await give(sofa.campaign, bob, 0.5, "Kuba", sofaInvite);
+  // ---- goal reached: Succeeded immediately, waiting for anyone to pay it out
+  const cats = await create("Shelter for street cats", 100, H2, null, [T.animals]);
+  await give(cats.campaign, bob, 60, "Kuba");
+  await give(cats.campaign, carol, 50, "Ola");
 
-  // ---- short deadlines: these settle into the closed states
-  const win = await create("Shelter for street cats", 1, 6, null, [T.animals]);
-  await give(win.campaign, bob, 0.6, "Kuba");
-  await give(win.campaign, carol, 0.5, "Ola");
+  // ---- paid out
+  const garden = await create("Community garden seeds", 100, H2, null, [T.environment, T.community]);
+  await give(garden.campaign, carol, 100, "Ola");
+  await payOut(garden.campaign);
 
-  const loseInvite = Keypair.generate();
-  const lose = await create("Ski trip deposit", 5, 6, loseInvite, [T.trip, T.gear]);
-  await give(lose.campaign, bob, 0.3, "Kuba", loseInvite);
+  // ---- cancelled by the organizer: refunds open
+  const stage = await create("Stage for the street festival", 800, H2, null, [T.community]);
+  await give(stage.campaign, bob, 120, "Kuba");
+  await program.methods.cancel().accountsPartial({ organizer: organizer.publicKey, campaign: stage.campaign }).rpc();
 
-  const done = await create("Community garden seeds", 1, 6, null, [T.environment, T.community]);
-  await give(done.campaign, carol, 1, "Ola");
-
-  console.log("waiting for the short deadlines...");
-  while ((await chainNow()) < done.deadline) await sleep(1000);
-  await sleep(1500);
-
-  await program.methods.withdraw()
-    .accountsPartial({ recipient: organizer.publicKey, campaign: done.campaign }).rpc();
-  console.log("withdrew Community garden seeds");
+  // ---- goal missed: needs its (short) deadline to pass
+  const skiInvite = Keypair.generate();
+  const ski = await create("Ski trip deposit", 500, 6, skiInvite, [T.trip, T.gear]);
+  await give(ski.campaign, bob, 30, "Kuba", skiInvite);
+  console.log("waiting for the short deadline...");
+  while ((await chainNow()) < ski.deadline) await sleep(1000);
 
   console.log("\nSTATES:");
-  for (const [label, c] of [["open", open.campaign], ["private", trip.campaign], ["succeeded", win.campaign], ["failed", lose.campaign], ["withdrawn", done.campaign]] as const) {
+  const rows = [["open", open.campaign], ["private", trip.campaign], ["reached", cats.campaign],
+    ["paid out", garden.campaign], ["cancelled", stage.campaign], ["missed", ski.campaign]] as const;
+  for (const [label, c] of rows) {
     const s: any = await program.account.campaign.fetch(c);
-    console.log(` ${label.padEnd(10)} ${c.toBase58()} raised=${s.totalRaised.toNumber()/1e9} goal=${s.goal.toNumber()/1e9} withdrawn=${s.withdrawn}`);
+    console.log(` ${label.padEnd(10)} ${c.toBase58()} raised=${s.totalRaised.toNumber() / USDC} goal=${s.goal.toNumber() / USDC} status=${Object.keys(s.status)[0]}`);
   }
 }
 main().catch((e) => { console.error(e); process.exit(1); });
