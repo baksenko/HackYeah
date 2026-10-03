@@ -15,7 +15,8 @@ export const FundraiserErrorCode = {
   CampaignNotSettled: 6012,
   InviteRequired: 6013,
   InvalidInvite: 6014,
-  NicknameTooLong: 6015
+  NicknameTooLong: 6015,
+  TooManyTags: 6016
 };
 
 export type FundraiserErrorName = keyof typeof FundraiserErrorCode;

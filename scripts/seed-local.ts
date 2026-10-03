@@ -41,7 +41,8 @@ async function main() {
   const chainNow = async () => (await connection.getBlockTime(await connection.getSlot()))!;
 
   let id = 0n;
-  const create = async (title: string, goalSol: number, secs: number, invite: Keypair | null = null) => {
+  const create = async (title: string, goalSol: number, secs: number, invite: Keypair | null = null, tagBits: number[] = []) => {
+    const tags = tagBits.reduce((m, b) => (m | (1 << b)) >>> 0, 0);
     const campaignId = ++id;
     const idBytes = Buffer.alloc(8); idBytes.writeBigUInt64LE(campaignId);
     const campaign = PublicKey.findProgramAddressSync(
@@ -50,7 +51,7 @@ async function main() {
     await program.methods.createCampaign(
       new anchor.BN(campaignId.toString()), title,
       new anchor.BN(goalSol * LAMPORTS_PER_SOL), new anchor.BN(deadline), organizer.publicKey,
-      invite ? invite.publicKey : null)
+      invite ? invite.publicKey : null, tags)
       .accountsPartial({ organizer: organizer.publicKey, campaign, systemProgram: SystemProgram.programId })
       .rpc();
     console.log(`created ${invite ? "PRIVATE" : "public "} "${title}" -> ${campaign.toBase58()} (deadline +${secs}s)`);
@@ -70,29 +71,48 @@ async function main() {
       .signers(invite ? [who, invite] : [who]).rpc();
   };
 
-  // public, open for 2 hours
-  const open = await create("New playground for Zielona Street", 2, 7200);
+  // Tag bits — see app/src/lib/tags.ts.
+  const T = {
+    medical: 0, education: 1, community: 2, animals: 3, environment: 4, emergency: 5, tech: 8,
+    localBusiness: 9, trip: 16, gift: 17, birthday: 18, flatmates: 20, sharedPurchase: 24, gear: 25,
+  };
+  const H2 = 7200;
+
+  // ---- public, open
+  const open = await create("New playground for Zielona Street", 2, H2, null, [T.community, T.localBusiness]);
   await give(open.campaign, bob, 0.75, "Kuba");
   await give(open.campaign, carol, 0.4, "Ola");
 
-  // private, open for 2 hours
+  const laptops = await create("Laptops for the village school", 4, H2, null, [T.education, T.tech]);
+  await give(laptops.campaign, carol, 2.5, "Ola");
+
+  const clinic = await create("Flood relief for the local clinic", 3, H2, null, [T.medical, T.emergency, T.community]);
+  await give(clinic.campaign, bob, 0.5, "Kuba");
+
+  // ---- private, open
   const tripInvite = Keypair.generate();
-  const trip = await create("Trip to New Zealand", 3, 7200, tripInvite);
+  const trip = await create("Trip to New Zealand", 3, H2, tripInvite, [T.trip]);
   await give(trip.campaign, bob, 1.2, "Kuba", tripInvite);
   await give(trip.campaign, carol, 0.8, "Ola", tripInvite);
 
-  // public, will succeed
-  const win = await create("Shelter for street cats", 1, 6);
+  const giftInvite = Keypair.generate();
+  const gift = await create("Anna's 30th birthday present", 1.5, H2, giftInvite, [T.gift, T.birthday]);
+  await give(gift.campaign, carol, 0.3, "Ola", giftInvite);
+
+  const sofaInvite = Keypair.generate();
+  const sofa = await create("New sofa for the flat", 2, H2, sofaInvite, [T.flatmates, T.sharedPurchase]);
+  await give(sofa.campaign, bob, 0.5, "Kuba", sofaInvite);
+
+  // ---- short deadlines: these settle into the closed states
+  const win = await create("Shelter for street cats", 1, 6, null, [T.animals]);
   await give(win.campaign, bob, 0.6, "Kuba");
   await give(win.campaign, carol, 0.5, "Ola");
 
-  // private, will fail
   const loseInvite = Keypair.generate();
-  const lose = await create("Ski trip deposit", 5, 6, loseInvite);
+  const lose = await create("Ski trip deposit", 5, 6, loseInvite, [T.trip, T.gear]);
   await give(lose.campaign, bob, 0.3, "Kuba", loseInvite);
 
-  // public, will be withdrawn
-  const done = await create("Community garden seeds", 1, 6);
+  const done = await create("Community garden seeds", 1, 6, null, [T.environment, T.community]);
   await give(done.campaign, carol, 1, "Ola");
 
   console.log("waiting for the short deadlines...");

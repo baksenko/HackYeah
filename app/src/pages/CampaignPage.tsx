@@ -8,6 +8,7 @@ import { Link, useLocation, useParams } from 'react-router-dom'
 import { Progress } from '../components/Progress'
 import { SharePanel } from '../components/SharePanel'
 import { StatusBadge } from '../components/StatusBadge'
+import { TagChip } from '../components/TagChip'
 import { TxResult } from '../components/TxResult'
 import {
   campaignStatus,
@@ -29,6 +30,7 @@ import {
   rememberNickname,
 } from '../lib/invite'
 import { contributionPda, useProgram } from '../lib/program'
+import { decodeTags } from '../lib/tags'
 import { sendTransaction, type TxOutcome } from '../lib/send'
 import { useChainClock } from '../lib/useChainClock'
 
@@ -193,7 +195,7 @@ export function CampaignPage() {
 
   return (
     <article className="campaign">
-      <Link to="/" className="back">
+      <Link to="/campaigns" className="back">
         ← All campaigns
       </Link>
 
@@ -205,6 +207,13 @@ export function CampaignPage() {
             {isRecipient && ' (you)'} · organised by {shortKey(campaign.organizer.toBase58())}
             {isOrganizer && ' (you)'}
           </p>
+          {decodeTags(campaign.tags).length > 0 && (
+            <div className="tag-row">
+              {decodeTags(campaign.tags).map((tag) => (
+                <TagChip key={tag.slug} tag={tag} link />
+              ))}
+            </div>
+          )}
         </div>
         <div className="badges">
           <span className={`badge ${privateCampaign ? 'badge-private' : 'badge-public'}`}>

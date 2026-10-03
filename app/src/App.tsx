@@ -1,8 +1,9 @@
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
-import { Link, Route, Routes } from 'react-router-dom'
+import { Link, NavLink, Route, Routes } from 'react-router-dom'
 
 import { WalletBalance } from './components/WalletBalance'
 import { CampaignPage } from './pages/CampaignPage'
+import { CampaignsPage } from './pages/CampaignsPage'
 import { CreateCampaignPage } from './pages/CreateCampaignPage'
 import { HomePage } from './pages/HomePage'
 import { PROGRAM_ID } from './lib/program'
@@ -19,6 +20,13 @@ export function App() {
             <small>Group fundraising</small>
           </span>
         </Link>
+        <nav className="nav">
+          <NavLink to="/" end>
+            Home
+          </NavLink>
+          <NavLink to="/campaigns">Campaigns</NavLink>
+          <NavLink to="/new">Start a campaign</NavLink>
+        </nav>
         <div className="topbar-right">
           <span className="devnet-pill">{CLUSTER_LABEL} · test money only</span>
           <WalletMultiButton />
@@ -30,6 +38,7 @@ export function App() {
       <main>
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/campaigns" element={<CampaignsPage />} />
           <Route path="/new" element={<CreateCampaignPage />} />
           <Route path="/c/:address" element={<CampaignPage />} />
           <Route path="*" element={<p className="empty">Nothing here.</p>} />

@@ -266,6 +266,10 @@ export type Fundraiser = {
           "type": {
             "option": "pubkey"
           }
+        },
+        {
+          "name": "tags",
+          "type": "u32"
         }
       ]
     },
@@ -537,6 +541,11 @@ export type Fundraiser = {
       "code": 6015,
       "name": "nicknameTooLong",
       "msg": "Nickname must be at most 32 bytes"
+    },
+    {
+      "code": 6016,
+      "name": "tooManyTags",
+      "msg": "A campaign can have at most 5 tags"
     }
   ],
   "types": [
@@ -629,6 +638,16 @@ export type Fundraiser = {
             "type": {
               "option": "pubkey"
             }
+          },
+          {
+            "name": "tags",
+            "docs": [
+              "Up to `MAX_TAGS` labels (\"Trip\", \"Medical\", …) as a bitmask, so the",
+              "app can filter and search without a database. The catalogue of what",
+              "each bit means lives in the app (`app/src/lib/tags.ts`); the program",
+              "only stores them, as plain descriptive metadata, never as a rule."
+            ],
+            "type": "u32"
           },
           {
             "name": "bump",

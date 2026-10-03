@@ -16,6 +16,8 @@ export type Campaign = {
   withdrawn: boolean
   /** Set for private campaigns: contributing needs this key's signature. */
   invite: PublicKey | null
+  /** Bitmask; decode with `decodeTags` from ./tags. */
+  tags: number
   bump: number
 }
 

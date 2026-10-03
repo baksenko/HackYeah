@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom'
 import { TxResult } from '../components/TxResult'
 import { encodeInvite, rememberInvite } from '../lib/invite'
 import { MAX_TITLE_BYTES, campaignPda, useProgram } from '../lib/program'
+import { MAX_TAGS, encodeTags, tagsForScope, type Tag } from '../lib/tags'
 import { sendTransaction, type TxOutcome } from '../lib/send'
 import { solToLamports } from '../lib/format'
 import { useChainClock } from '../lib/useChainClock'
@@ -28,6 +29,7 @@ export function CreateCampaignPage() {
   const now = useChainClock()
 
   const [visibility, setVisibility] = useState<'private' | 'public'>('private')
+  const [tags, setTags] = useState<Tag[]>([])
   const [title, setTitle] = useState('')
   const [goal, setGoal] = useState('1')
   const [preset, setPreset] = useState<number>(PRESETS[0].seconds)
@@ -98,6 +100,7 @@ export function CreateCampaignPage() {
           new BN(now + seconds),
           recipientKey,
           invite?.publicKey ?? null,
+          encodeTags(tags),
         )
         .accountsPartial({
           organizer: wallet.publicKey,
@@ -148,7 +151,10 @@ export function CreateCampaignPage() {
           <button
             type="button"
             className={`visibility-option ${visibility === 'private' ? 'selected' : ''}`}
-            onClick={() => setVisibility('private')}
+            onClick={() => {
+              setVisibility('private')
+              setTags([])
+            }}
           >
             <span className="visibility-icon">🔒</span>
             <strong>Private — for friends</strong>
@@ -160,7 +166,10 @@ export function CreateCampaignPage() {
           <button
             type="button"
             className={`visibility-option ${visibility === 'public' ? 'selected' : ''}`}
-            onClick={() => setVisibility('public')}
+            onClick={() => {
+              setVisibility('public')
+              setTags([])
+            }}
           >
             <span className="visibility-icon">🌍</span>
             <strong>Public — crowdfunding</strong>
@@ -182,6 +191,34 @@ export function CreateCampaignPage() {
             {titleBytes}/{MAX_TITLE_BYTES} characters
           </small>
         </label>
+
+        <fieldset>
+          <legend>Tags — pick up to {MAX_TAGS}</legend>
+          <div className="choices">
+            {tagsForScope(visibility).map((tag) => {
+              const on = tags.some((t) => t.bit === tag.bit)
+              const full = !on && tags.length >= MAX_TAGS
+              return (
+                <button
+                  key={tag.slug}
+                  type="button"
+                  className={`chip ${on ? 'chip-on' : ''}`}
+                  aria-pressed={on}
+                  disabled={full}
+                  onClick={() =>
+                    setTags((cur) => (on ? cur.filter((t) => t.bit !== tag.bit) : [...cur, tag]))
+                  }
+                >
+                  {tag.emoji} {tag.label}
+                </button>
+              )
+            })}
+          </div>
+          <small>
+            Tags help people find {visibility === 'public' ? 'your cause' : 'and organise your campaigns'}{' '}
+            in search. Like everything else, they are fixed once the campaign is created.
+          </small>
+        </fieldset>
 
         <label>
           <span>How much do you need, in SOL?</span>

@@ -1,90 +1,45 @@
 import { useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
-import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { Progress } from '../components/Progress'
-import { StatusBadge } from '../components/StatusBadge'
-import {
-  campaignStatus,
-  fetchCampaigns,
-  fetchMyCampaignKeys,
-  isPrivate,
-  secondsLeft,
-  type Campaign,
-} from '../lib/campaign'
-import { formatCountdown, shortKey } from '../lib/format'
-import { recallInvite } from '../lib/invite'
-import { useProgram } from '../lib/program'
+import { CampaignCard } from '../components/CampaignCard'
+import { campaignStatus, progressRatio } from '../lib/campaign'
+import { tagsForScope } from '../lib/tags'
+import { useCampaignDirectory } from '../lib/useCampaignDirectory'
 import { useChainClock } from '../lib/useChainClock'
 
+const STEPS = [
+  {
+    icon: '📝',
+    title: 'Set the rules once',
+    text: 'Goal, deadline and who receives the money. Written into a Solana program — nobody can change them afterwards, not even you.',
+  },
+  {
+    icon: '📱',
+    title: 'Share a link or QR code',
+    text: 'Friends scan it and chip in. Private campaigns accept money only from people holding your invite.',
+  },
+  {
+    icon: '⚖️',
+    title: 'The program settles it',
+    text: 'Goal reached: only the recipient can take the money. Goal missed: everyone takes back exactly what they put in.',
+  },
+]
+
+/** Landing page. The full, searchable list lives on /campaigns. */
 export function HomePage() {
-  const program = useProgram()
-  const { connected, publicKey } = useWallet()
+  const { connected } = useWallet()
   const now = useChainClock()
+  const { loading, publicCampaigns, myPrivate } = useCampaignDirectory()
 
-  const [campaigns, setCampaigns] = useState<Campaign[] | null>(null)
-  const [joined, setJoined] = useState<Set<string>>(new Set())
-  const [error, setError] = useState<string | null>(null)
+  const openFirst = (list: typeof publicCampaigns) =>
+    [...list]
+      .filter((c) => campaignStatus(c, now) === 'open')
+      .sort((a, b) => progressRatio(b) - progressRatio(a))
+      .slice(0, 3)
 
-  const load = useCallback(async () => {
-    try {
-      setError(null)
-      const [all, mine] = await Promise.all([
-        fetchCampaigns(program),
-        publicKey ? fetchMyCampaignKeys(program, publicKey) : Promise.resolve(new Set<string>()),
-      ])
-      setCampaigns(all)
-      setJoined(mine)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not read campaigns from the chain.')
-    }
-  }, [program, publicKey])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  const publicCampaigns = campaigns?.filter((c) => !isPrivate(c)) ?? []
-
-  // A private campaign appears here only for people already part of it:
-  // the organizer, the recipient, a contributor, or someone whose browser
-  // holds the invite. Everyone else needs the link.
-  const myPrivate =
-    campaigns?.filter(
-      (c) =>
-        isPrivate(c) &&
-        ((publicKey && (c.organizer.equals(publicKey) || c.recipient.equals(publicKey))) ||
-          joined.has(c.address.toBase58()) ||
-          !!recallInvite(c.address)?.publicKey.equals(c.invite!)),
-    ) ?? []
-
-  const renderCard = (campaign: Campaign) => {
-    const status = campaignStatus(campaign, now)
-    const left = secondsLeft(campaign, now)
-    const priv = isPrivate(campaign)
-    return (
-      <li key={campaign.address.toBase58()}>
-        <Link to={`/c/${campaign.address.toBase58()}`} className="card">
-          <div className={`card-banner ${priv ? 'banner-private' : 'banner-public'}`}>
-            <span className="card-kind">{priv ? '🔒 Friends' : '🌍 Crowdfunding'}</span>
-            <StatusBadge status={status} />
-          </div>
-          <div className="card-body">
-            <h3>{campaign.title}</h3>
-            <Progress campaign={campaign} />
-            <p className="card-meta">
-              {status === 'open'
-                ? `Closes in ${formatCountdown(left)}`
-                : `Closed ${formatCountdown(-left)} ago`}
-              {' · for '}
-              {shortKey(campaign.recipient.toBase58())}
-            </p>
-          </div>
-        </Link>
-      </li>
-    )
-  }
+  const featured = openFirst(publicCampaigns)
+  const mineOpen = openFirst(myPrivate)
 
   return (
     <>
@@ -104,66 +59,88 @@ export function HomePage() {
               Start a campaign
             </Link>
           ) : (
-            <>
-              <WalletMultiButton />
-              <span className="aside">Connect a wallet to start a campaign or chip in.</span>
-            </>
+            <WalletMultiButton />
           )}
-        </div>
-        <div className="hero-pills">
-          <span className="pill">🔒 Private invite links</span>
-          <span className="pill">📱 QR sharing</span>
-          <span className="pill">↩︎ Automatic refunds</span>
-          <span className="pill">🔍 Every rule on chain</span>
+          <Link to="/campaigns" className="button button-secondary button-large">
+            Browse campaigns →
+          </Link>
         </div>
       </section>
 
-      {error && <p className="notice notice-error">{error}</p>}
+      <section className="steps">
+        {STEPS.map((step, i) => (
+          <div key={step.title} className="step">
+            <span className="step-icon">{step.icon}</span>
+            <span className="step-number">Step {i + 1}</span>
+            <h3>{step.title}</h3>
+            <p>{step.text}</p>
+          </div>
+        ))}
+      </section>
 
       <section className="list-section">
         <div className="section-head">
           <div>
-            <span className="eyebrow">🔒 Private</span>
-            <h2>Your friend groups</h2>
-            <p className="aside">
-              Private campaigns are not listed for anyone else. You see the ones you organise,
-              receive, or have joined.
-            </p>
+            <span className="eyebrow">Browse by tag</span>
+            <h2>What are people raising for?</h2>
           </div>
         </div>
-        {!connected ? (
-          <p className="empty-card">
-            Connect your wallet to see your private campaigns. Got an invite link or QR code? Just
-            open it.
-          </p>
-        ) : campaigns === null ? (
+        <div className="tag-cloud">
+          {[...tagsForScope('public'), ...tagsForScope('private')].map((tag) => (
+            <Link key={tag.slug} to={`/campaigns?tags=${tag.slug}`} className={`tag-tile tag-${tag.scope}`}>
+              <span className="tag-tile-emoji">{tag.emoji}</span>
+              {tag.label}
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {mineOpen.length > 0 && (
+        <section className="list-section">
+          <div className="section-head">
+            <div>
+              <span className="eyebrow">🔒 Private</span>
+              <h2>Your friend groups</h2>
+            </div>
+            <Link to="/campaigns?tab=private" className="link-button">
+              See all →
+            </Link>
+          </div>
+          <ul className="card-list">
+            {mineOpen.map((c) => (
+              <li key={c.address.toBase58()}>
+                <CampaignCard campaign={c} now={now} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section className="list-section">
+        <div className="section-head">
+          <div>
+            <span className="eyebrow">🌍 Crowdfunding</span>
+            <h2>Open right now</h2>
+          </div>
+          <Link to="/campaigns?tab=public&status=open" className="link-button">
+            See all →
+          </Link>
+        </div>
+        {loading ? (
           <p className="empty">Reading the chain…</p>
-        ) : myPrivate.length === 0 ? (
+        ) : featured.length === 0 ? (
           <p className="empty-card">
-            No private campaigns yet. <Link to="/new">Start one for your friends</Link>, or open an
-            invite link someone sent you.
+            No public campaigns are open right now. <Link to="/campaigns">Browse all campaigns</Link>
           </p>
         ) : (
-          <ul className="card-list">{myPrivate.map(renderCard)}</ul>
+          <ul className="card-list">
+            {featured.map((c) => (
+              <li key={c.address.toBase58()}>
+                <CampaignCard campaign={c} now={now} />
+              </li>
+            ))}
+          </ul>
         )}
-      </section>
-
-      <section className="list-section">
-        <div className="section-head">
-          <div>
-            <span className="eyebrow">🌍 Public</span>
-            <h2>Crowdfunding</h2>
-            <p className="aside">Open to everyone. Anyone can see these and chip in.</p>
-          </div>
-          <button className="link-button" onClick={() => void load()}>
-            Refresh
-          </button>
-        </div>
-        {campaigns === null && !error && <p className="empty">Reading the chain…</p>}
-        {campaigns !== null && publicCampaigns.length === 0 && (
-          <p className="empty-card">No public campaigns yet.</p>
-        )}
-        <ul className="card-list">{publicCampaigns.map(renderCard)}</ul>
       </section>
     </>
   )

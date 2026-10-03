@@ -156,7 +156,7 @@ an instruction does not exist, nobody can call it.
 
 | Instruction | Who may sign | Conditions enforced on chain | Rejects with |
 |---|---|---|---|
-| `create_campaign` | Anyone (becomes the organiser) | `goal > 0`, `deadline > now`, title ≤ 64 bytes; optional invite key makes it private | `InvalidGoal`, `InvalidDeadline`, `TitleTooLong` |
+| `create_campaign` | Anyone (becomes the organiser) | `goal > 0`, `deadline > now`, title ≤ 64 bytes, ≤ 5 tags; optional invite key makes it private | `InvalidGoal`, `InvalidDeadline`, `TitleTooLong`, `TooManyTags` |
 | `contribute` | Anyone (public) · only holders of the invite link (private) | `now < deadline`, `amount > 0`, nickname ≤ 32 bytes, and for private campaigns the invite key must co-sign | `DeadlinePassed`, `InvalidAmount`, `NicknameTooLong`, `InviteRequired`, `InvalidInvite` |
 | `withdraw` | **Only `campaign.recipient`** | `now ≥ deadline`, `total_raised ≥ goal`, `!withdrawn` | `NotRecipient`, `DeadlineNotReached`, `GoalNotReached`, `AlreadyWithdrawn` |
 | `refund` | **Only the contributor of that `Contribution`** | `now ≥ deadline`, `total_raised < goal` | `DeadlineNotReached`, `GoalReached` |
@@ -198,6 +198,31 @@ right after creating a campaign, and the invite is remembered in their browser.
 The QR encodes the address the app is currently served from. On
 `localhost` a friend's phone cannot open it; host the app (or serve it on your
 LAN) for real-world sharing.
+
+### Tags and search
+
+Each campaign carries **up to five tags**, chosen at creation and fixed like
+every other field. Private and public campaigns draw from different sets:
+
+- **Crowdfunding causes:** Medical, Education, Community, Animals,
+  Environment, Emergency, Arts & culture, Sports, Tech, Local business
+- **Friend groups:** Trip, Gift, Birthday, Party, Flatmates, Concert &
+  tickets, Food & dinner, Wedding, Shared purchase, Sports gear
+
+On chain they are a single `u32` bitmask in `Campaign.tags`; the program
+enforces the five-tag cap (`TooManyTags`) and nothing else, since tags are
+description rather than rules. What each bit means is a catalogue in
+`app/src/lib/tags.ts`. Bits are permanent: new tags go on unused bits, and an
+existing bit is never renumbered, or old campaigns would be relabelled.
+
+The **Campaigns** page (`/campaigns`) is the search: free text over titles and
+tag names, tag chips (a campaign matches if it has *any* selected tag),
+Crowdfunding / Your friend groups tabs, a status filter and sorting. Every
+filter is in the URL, so a search can be shared as a link —
+`/campaigns?tab=public&tags=animals,community`. There is no search server: the
+browser filters what `getProgramAccounts` returns, which is fine at hackathon
+scale and would need an indexer at real scale. Private campaigns only ever
+appear in search for people already in them.
 
 ### Nicknames
 
@@ -329,7 +354,10 @@ app/                                      frontend — no backend, no database
   src/lib/useChainClock.ts                uses the cluster's clock, not the browser's
   src/lib/invite.ts                       invite links (#fragment), share URLs, nickname memory
   src/components/SharePanel.tsx           QR code, copy link, native share, download QR
-  src/pages/HomePage.tsx                  "Your friend groups" (private) + "Crowdfunding" (public)
+  src/pages/HomePage.tsx                  landing: how it works, browse by tag, featured campaigns
+  src/pages/CampaignsPage.tsx             search: text, tags, public/private tabs, status, sort
+  src/lib/tags.ts                         tag catalogue: what each bit of Campaign.tags means
+  src/lib/useCampaignDirectory.ts         which campaigns this viewer may see listed
   src/pages/CreateCampaignPage.tsx        create form
   src/pages/CampaignPage.tsx              actions, contributors, early-withdraw demo
 
@@ -526,6 +554,8 @@ now cannot undo.
 - **Invite links can be forwarded.** Anyone a friend forwards the link to can
   join. Per-person invites (one key per invitee) would fix this.
 - **Nicknames are not identity.** Anyone can type any name.
+- **Search runs in the browser.** It downloads every campaign account and
+  filters locally. Past a few thousand campaigns this needs an indexer.
 - **The program is still upgradeable.** See
   [Can the authors change anything?](#can-the-authors-change-anything).
 - **Not audited.** Devnet, test money, a hackathon weekend. Do not put real
