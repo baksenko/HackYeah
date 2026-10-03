@@ -25,6 +25,7 @@ import { CLUSTER_LABEL } from '../lib/cluster'
 import { PERMISSIONS, whatCanHappenNow } from '../lib/explain'
 import { CONTRIBUTION_ACCOUNT_SPACE, accountDeposit, networkFee } from '../lib/fees'
 import { formatCountdown, formatDateTime, formatSol, shortKey, solToLamports } from '../lib/format'
+import { buildLeaderboard } from '../lib/leaderboard'
 import {
   inviteFromHash,
   recallInvite,
@@ -190,6 +191,13 @@ export function CampaignPage() {
   const recipientAddress = campaign.recipient.toBase58()
   const deadline = campaign.deadline.toNumber()
   const totalRaised = Number(campaign.totalRaised.toString())
+
+  // This campaign's own leaderboard: the same ranking as the global one,
+  // counting only this campaign's receipts. Refunded receipts are gone already.
+  const ranked = buildLeaderboard(contributions, new Set([campaignAddress]))
+  const stillHeld = ranked.reduce((sum, r) => sum.add(r.total), new BN(0))
+  const sharePercent = (amount: BN) =>
+    stillHeld.isZero() ? '—' : `${Math.round((Number(amount.toString()) / Number(stillHeld.toString())) * 100)}%`
 
   /**
    * `withInvite: false` deliberately leaves the invite out even when this
@@ -596,39 +604,61 @@ export function CampaignPage() {
 
       <section className="panel">
         <div className="section-head">
-          <h2>Who chipped in</h2>
+          <div>
+            <h2>Leaderboard</h2>
+            <p className="aside">Everyone who chipped in, largest first.</p>
+          </div>
           <button className="link-button" onClick={() => void load()}>
             Refresh
           </button>
         </div>
-        {contributions.length === 0 ? (
+        {ranked.length === 0 ? (
           <p className="empty">Nobody yet.</p>
         ) : (
-          <table className="table">
-            <tbody>
-              {contributions.map((c) => {
-                const mine = !!me && c.contributor.equals(me)
-                return (
-                  <tr key={c.address.toBase58()}>
-                    <td>
-                      {c.nickname ? (
-                        <>
-                          <span className="nickname">{c.nickname}</span>
-                          {mine && <span className="you"> you</span>}
-                          <span className="address-under">
-                            <Address address={c.contributor.toBase58()} explorer />
-                          </span>
-                        </>
-                      ) : (
-                        <Address address={c.contributor.toBase58()} you={mine} explorer />
-                      )}
-                    </td>
-                    <td className="right">{formatSol(c.amount)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <div className="leaderboard-scroll">
+            <table className="table leaderboard">
+              <thead>
+                <tr>
+                  <th className="right">#</th>
+                  <th>Contributor</th>
+                  <th className="right">Share</th>
+                  <th className="right">Chipped in</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ranked.map((row) => {
+                  const mine = !!me && row.contributor.equals(me)
+                  return (
+                    <tr key={row.contributor.toBase58()} className={mine ? 'leaderboard-me' : undefined}>
+                      <td className="right leaderboard-rank">{row.rank}</td>
+                      <td>
+                        {row.nickname ? (
+                          <>
+                            <span className="nickname">{row.nickname}</span>
+                            {mine && <span className="you"> you</span>}
+                            <span className="address-under">
+                              <Address address={row.contributor.toBase58()} explorer />
+                            </span>
+                          </>
+                        ) : (
+                          <Address address={row.contributor.toBase58()} you={mine} explorer />
+                        )}
+                      </td>
+                      <td className="right">{sharePercent(row.total)}</td>
+                      <td className="right">
+                        <strong>{formatSol(row.total)}</strong>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {!privateCampaign && ranked.length > 0 && (
+          <p className="aside">
+            <Link to="/leaderboard">See who has chipped in the most across all public campaigns →</Link>
+          </p>
         )}
         {campaign.totalRefunded.gt(new BN(0)) && (
           <p className="aside">
