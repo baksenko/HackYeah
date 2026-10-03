@@ -59,10 +59,16 @@ pub mod fundraiser {
         instructions::update_recipient::handle_update_recipient(ctx, new_recipient)
     }
 
-    /// Put SOL in. Signer: anyone while open; for a private campaign, also
-    /// the invite key from the share link.
-    pub fn contribute(ctx: Context<Contribute>, amount: u64, nickname: String) -> Result<()> {
-        instructions::contribute::handle_contribute(ctx, amount, nickname)
+    /// Put USDC in. Signer: anyone while Active and before the deadline; for
+    /// a private campaign, also the invite key from the share link.
+    /// `expected_recipient` must match the campaign's current recipient.
+    pub fn contribute(
+        ctx: Context<Contribute>,
+        amount: u64,
+        nickname: String,
+        expected_recipient: Pubkey,
+    ) -> Result<()> {
+        instructions::contribute::handle_contribute(ctx, amount, nickname, expected_recipient)
     }
 
     /// Take the pot. Signer: the recipient only, after a successful deadline.

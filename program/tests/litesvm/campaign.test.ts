@@ -3,7 +3,7 @@ import { AccountLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 
-import { contributeSol, createCampaign, updateRecipient } from "./fixtures";
+import { contribute, createCampaign, updateRecipient } from "./fixtures";
 import { anchor, createHarness, expectError, TEST_USDC_MINT, USDC } from "./harness";
 import { readAccount } from "./provider";
 
@@ -110,7 +110,9 @@ describe("update_recipient", () => {
     const h = createHarness();
     const organizer = h.wallet();
     const { campaign } = await createCampaign(h, { organizer });
-    await contributeSol(h, campaign, h.wallet(), 1_000_000);
+    const contributor = h.wallet();
+    h.fundTokens(contributor.publicKey, 5 * USDC);
+    await contribute(h, campaign, contributor, 1 * USDC);
     await expectError(updateRecipient(h, campaign, organizer, Keypair.generate().publicKey), "RecipientLocked");
   });
 

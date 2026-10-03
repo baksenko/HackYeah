@@ -83,25 +83,43 @@ export function updateRecipient(h: Harness, campaign: PublicKey, organizer: Keyp
     .rpc();
 }
 
-/**
- * The current (pre-USDC) contribute instruction, still moving SOL. Replaced
- * by the token version in the next step.
- */
-export function contributeSol(
+export type ContributeOptions = {
+  nickname?: string;
+  invite?: Keypair;
+  /** Defaults to the campaign's current recipient, read from chain. */
+  expectedRecipient?: PublicKey;
+  /** Overrides, to test that the program refuses them. */
+  mint?: PublicKey;
+  contributorToken?: PublicKey;
+  vault?: PublicKey;
+};
+
+/** The contributor's own USDC account (the one `fundTokens` creates). */
+export const tokenAccountOf = (owner: PublicKey, mint: PublicKey = TEST_USDC_MINT) =>
+  getAssociatedTokenAddressSync(mint, owner, true);
+
+/** Calls contribute with `amount` in base units (use `USDC` to scale). */
+export async function contribute(
   h: Harness,
   campaign: PublicKey,
   contributor: Keypair,
-  lamports: number,
-  invite?: Keypair
+  amount: number | bigint,
+  o: ContributeOptions = {}
 ) {
+  const expectedRecipient =
+    o.expectedRecipient ?? (await h.program.account.campaign.fetch(campaign)).recipient;
+  const mint = o.mint ?? TEST_USDC_MINT;
   return h.program.methods
-    .contribute(new BN(lamports), "")
+    .contribute(new BN(amount.toString()), o.nickname ?? "", expectedRecipient)
     .accountsPartial({
       contributor: contributor.publicKey,
       campaign,
       contribution: contributionPda(h, campaign, contributor.publicKey),
-      invite: invite?.publicKey ?? null,
+      mint,
+      contributorToken: o.contributorToken ?? tokenAccountOf(contributor.publicKey, mint),
+      vault: o.vault ?? vaultOf(campaign, mint),
+      invite: o.invite?.publicKey ?? null,
     })
-    .signers(invite ? [contributor, invite] : [contributor])
+    .signers(o.invite ? [contributor, o.invite] : [contributor])
     .rpc();
 }

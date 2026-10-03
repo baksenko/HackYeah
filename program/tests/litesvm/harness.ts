@@ -112,11 +112,18 @@ export function createHarness() {
     },
 
     /**
-     * Gives `owner` an associated token account for `mint` holding `amount`
-     * base units (written directly, like a faucet). Returns its address.
+     * Gives `owner` a token account for `mint` holding `amount` base units
+     * (written directly, like a faucet). By default it is the owner's
+     * associated token account; `at` places it at any other address.
+     * Returns its address.
      */
-    fundTokens(owner: PublicKey, amount: number | bigint, mint: PublicKey = TEST_USDC_MINT): PublicKey {
-      const ata = getAssociatedTokenAddressSync(mint, owner, true);
+    fundTokens(
+      owner: PublicKey,
+      amount: number | bigint,
+      mint: PublicKey = TEST_USDC_MINT,
+      at?: PublicKey
+    ): PublicKey {
+      const ata = at ?? getAssociatedTokenAddressSync(mint, owner, true);
       const data = Buffer.alloc(ACCOUNT_SIZE);
       AccountLayout.encode(
         {

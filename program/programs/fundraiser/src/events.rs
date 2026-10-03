@@ -12,6 +12,19 @@ pub struct CampaignCreated {
     pub private: bool,
 }
 
+/// Emitted by `contribute`.
+#[event]
+pub struct Contributed {
+    pub campaign: Pubkey,
+    pub contributor: Pubkey,
+    pub amount: u64,
+    /// This contributor's running total in the campaign.
+    pub contributor_total: u64,
+    pub total_raised: u64,
+    /// True when this contribution reached the goal (status became Succeeded).
+    pub goal_reached: bool,
+}
+
 /// Emitted by `update_recipient`, which is only possible before anyone has
 /// contributed.
 #[event]

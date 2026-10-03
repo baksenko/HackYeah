@@ -52,4 +52,6 @@ pub enum FundraiserError {
     RecipientLocked,
     #[msg("The recipient must be a real address")]
     InvalidRecipient,
+    #[msg("The recipient changed since you looked; check the campaign again")]
+    RecipientChanged,
 }

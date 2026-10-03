@@ -4,7 +4,7 @@
 import { Keypair } from "@solana/web3.js";
 import { assert } from "chai";
 
-import { contributeSol, createCampaign } from "./fixtures";
+import { contribute, createCampaign } from "./fixtures";
 import { createHarness, expectError, TEST_USDC_MINT, USDC, USDC_DECIMALS } from "./harness";
 
 describe("litesvm harness", () => {
@@ -42,8 +42,9 @@ describe("litesvm harness", () => {
     const { campaign } = await createCampaign(h, { organizer, invite: invite.publicKey });
 
     const contributor = h.wallet();
-    await contributeSol(h, campaign, contributor, 100_000_000, invite);
+    h.fundTokens(contributor.publicKey, 10 * USDC);
+    await contribute(h, campaign, contributor, 1 * USDC, { invite });
     h.warp(3601);
-    await expectError(contributeSol(h, campaign, contributor, 100_000_000, invite), "DeadlinePassed");
+    await expectError(contribute(h, campaign, contributor, 1 * USDC, { invite }), "DeadlinePassed");
   });
 });
