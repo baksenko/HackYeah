@@ -69,13 +69,3 @@ pub struct Contribution {
     pub nickname: String,
     pub bump: u8,
 }
-
-/// Proof that `KYC_VERIFIER` checked this wallet's owner. Required to open a
-/// public campaign. Holds no personal data: only who was verified and when.
-#[account]
-#[derive(InitSpace)]
-pub struct Verification {
-    pub wallet: Pubkey,
-    pub verified_at: i64,
-    pub bump: u8,
-}

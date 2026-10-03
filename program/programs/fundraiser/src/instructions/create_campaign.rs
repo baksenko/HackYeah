@@ -1,10 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::{
-    constants::*,
-    error::FundraiserError,
-    state::{Campaign, Verification},
-};
+use crate::{constants::*, error::FundraiserError, state::Campaign};
 
 #[derive(Accounts)]
 #[instruction(campaign_id: u64)]
@@ -20,14 +16,6 @@ pub struct CreateCampaign<'info> {
         bump
     )]
     pub campaign: Account<'info, Campaign>,
-
-    /// The organizer's identity verification. Required for a public campaign;
-    /// the seeds tie it to this organizer, so nobody can borrow another's.
-    #[account(
-        seeds = [VERIFICATION_SEED, organizer.key().as_ref()],
-        bump = verification.bump,
-    )]
-    pub verification: Option<Account<'info, Verification>>,
 
     pub system_program: Program<'info, System>,
 }
@@ -63,16 +51,6 @@ pub fn handle_create_campaign(
     );
     require!(tags.count_ones() <= MAX_TAGS, FundraiserError::TooManyTags);
     require!(goal > 0, FundraiserError::InvalidGoal);
-
-    // Public crowdfunding takes money from strangers, so its organizer must be
-    // identity-verified. Private friend-group campaigns (with an invite) are
-    // exempt. Enforced here, so a modified frontend cannot skip it.
-    if invite.is_none() {
-        require!(
-            ctx.accounts.verification.is_some(),
-            FundraiserError::KycRequired
-        );
-    }
 
     // Any future deadline is legal, including one two minutes out, so both
     // outcomes can be demonstrated live.

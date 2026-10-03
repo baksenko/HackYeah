@@ -150,38 +150,17 @@ There is no admin key, no platform fee, no pause switch, no "edit campaign",
 and no partial or milestone withdrawal. These are absent by construction — if
 an instruction does not exist, nobody can call it.
 
-### The one trusted party: the KYC verifier
-Opening a **public** campaign requires a verified organiser
-(`create_campaign` rejects with `KycRequired` otherwise). Verification is a
-`Verification` account at `["verification", wallet]`, which only
-`KYC_VERIFIER` can create, via `verify_identity`. Private friend-group
-campaigns need no verification.
-
-The verifier can only vouch for wallets. It has **no power over any campaign
-or any money**: it cannot withdraw, refund, edit, pause or block anything, and
-a verification cannot be moved to another wallet. It stores no personal data,
-only the wallet and the time.
-
-> **This build uses a demo verifier.** `KYC_VERIFIER` is derived from the
-> public seed `sha256("chip-in:demo-kyc-verifier:v1")`, so anyone can sign as
-> it, and the app's `/verify` form approves any input without checking
-> documents. The on-chain rule is real; the identity check behind it is a
-> mock. For production, replace `KYC_VERIFIER` in `constants.rs` with a real
-> KYC provider's key, kept on that provider's server and used only after it
-> has checked documents.
-
 ---
 
 ## Who can call what
 
 | Instruction | Who may sign | Conditions enforced on chain | Rejects with |
 |---|---|---|---|
-| `create_campaign` | Anyone (becomes the organiser); a **public** campaign needs a verified organiser | `goal > 0`, `deadline > now`, title ≤ 64 bytes, ≤ 5 tags, description ≤ 500 bytes, image link empty or `https://` and ≤ 200 bytes; optional invite key makes it private; no invite → the organiser's `Verification` must be passed | `InvalidGoal`, `InvalidDeadline`, `TitleTooLong`, `TooManyTags`, `DescriptionTooLong`, `ImageUrlTooLong`, `InvalidImageUrl`, `KycRequired` |
+| `create_campaign` | Anyone (becomes the organiser) | `goal > 0`, `deadline > now`, title ≤ 64 bytes, ≤ 5 tags, description ≤ 500 bytes, image link empty or `https://` and ≤ 200 bytes; optional invite key makes it private | `InvalidGoal`, `InvalidDeadline`, `TitleTooLong`, `TooManyTags`, `DescriptionTooLong`, `ImageUrlTooLong`, `InvalidImageUrl` |
 | `contribute` | Anyone (public) · only holders of the invite link (private) | `now < deadline`, `amount > 0`, nickname ≤ 32 bytes, and for private campaigns the invite key must co-sign | `DeadlinePassed`, `InvalidAmount`, `NicknameTooLong`, `InviteRequired`, `InvalidInvite` |
 | `withdraw` | **Only `campaign.recipient`** | `now ≥ deadline`, `total_raised ≥ goal`, `!withdrawn` | `NotRecipient`, `DeadlineNotReached`, `GoalNotReached`, `AlreadyWithdrawn` |
 | `refund` | **Only the contributor of that `Contribution`** | `now ≥ deadline`, `total_raised < goal` | `DeadlineNotReached`, `GoalReached` |
 | `close_campaign` | **Only `campaign.organizer`** | `withdrawn`, or goal missed and `total_refunded == total_raised` | `CampaignNotSettled` |
-| `verify_identity` | The wallet **and `KYC_VERIFIER`** (both sign) | One `Verification` per wallet; the wallet pays its rent | `NotVerifier` |
 
 `close_campaign` is housekeeping: it returns the organiser's own rent deposit
 once nothing is left to settle. It is unreachable while any contributor is
@@ -292,9 +271,7 @@ protects you from a changed program.
 
 What the authority holder **cannot** do is reach into existing campaigns with
 the current code. There is no admin instruction, no backdoor, no privileged
-key in the program itself. The only lever is a full code replacement. (The
-KYC verifier key is privileged only in what it can vouch for, never in what it
-can do to a campaign — see [The one trusted party](#the-one-trusted-party-the-kyc-verifier).)
+key in the program itself. The only lever is a full code replacement.
 
 **To remove even that lever**, discard the upgrade authority:
 

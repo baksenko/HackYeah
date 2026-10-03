@@ -236,39 +236,6 @@ export type Fundraiser = {
           }
         },
         {
-          "name": "verification",
-          "docs": [
-            "The organizer's identity verification. Required for a public campaign;",
-            "the seeds tie it to this organizer, so nobody can borrow another's."
-          ],
-          "optional": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  101,
-                  114,
-                  105,
-                  102,
-                  105,
-                  99,
-                  97,
-                  116,
-                  105,
-                  111,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "organizer"
-              }
-            ]
-          }
-        },
-        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -414,75 +381,6 @@ export type Fundraiser = {
       "args": []
     },
     {
-      "name": "verifyIdentity",
-      "docs": [
-        "Mark a wallet as identity-verified, which unlocks public campaigns.",
-        "Signers: the wallet (pays rent) and `KYC_VERIFIER`."
-      ],
-      "discriminator": [
-        177,
-        162,
-        9,
-        111,
-        44,
-        84,
-        80,
-        21
-      ],
-      "accounts": [
-        {
-          "name": "wallet",
-          "docs": [
-            "The wallet being verified. Signs to accept the record and pays its rent."
-          ],
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "verifier",
-          "docs": [
-            "Must be `KYC_VERIFIER`. Its signature is the verification."
-          ],
-          "signer": true,
-          "address": "6heuxcXmpLasM5dYeoFFFAXnhGLKLZNG4mPGFMZfqX3z"
-        },
-        {
-          "name": "verification",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  101,
-                  114,
-                  105,
-                  102,
-                  105,
-                  99,
-                  97,
-                  116,
-                  105,
-                  111,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "wallet"
-              }
-            ]
-          }
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "withdraw",
       "docs": [
         "Take the pot. Signer: the recipient only, after a successful deadline."
@@ -568,19 +466,6 @@ export type Fundraiser = {
         167,
         242,
         212
-      ]
-    },
-    {
-      "name": "verification",
-      "discriminator": [
-        230,
-        33,
-        140,
-        88,
-        132,
-        240,
-        116,
-        178
       ]
     }
   ],
@@ -672,26 +557,16 @@ export type Fundraiser = {
     },
     {
       "code": 6017,
-      "name": "kycRequired",
-      "msg": "Opening a public campaign requires a verified identity"
-    },
-    {
-      "code": 6018,
-      "name": "notVerifier",
-      "msg": "Only the KYC verifier can verify an identity"
-    },
-    {
-      "code": 6019,
       "name": "descriptionTooLong",
       "msg": "Description must be at most 500 bytes"
     },
     {
-      "code": 6020,
+      "code": 6018,
       "name": "imageUrlTooLong",
       "msg": "Image link must be at most 200 bytes"
     },
     {
-      "code": 6021,
+      "code": 6019,
       "name": "invalidImageUrl",
       "msg": "Image link must be empty or start with https://"
     }
@@ -859,30 +734,6 @@ export type Fundraiser = {
           }
         ]
       }
-    },
-    {
-      "name": "verification",
-      "docs": [
-        "Proof that `KYC_VERIFIER` checked this wallet's owner. Required to open a",
-        "public campaign. Holds no personal data: only who was verified and when."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "wallet",
-            "type": "pubkey"
-          },
-          {
-            "name": "verifiedAt",
-            "type": "i64"
-          },
-          {
-            "name": "bump",
-            "type": "u8"
-          }
-        ]
-      }
     }
   ],
   "constants": [
@@ -903,26 +754,22 @@ export type Fundraiser = {
       "value": "[99, 111, 110, 116, 114, 105, 98, 117, 116, 105, 111, 110]"
     },
     {
-      "name": "kycVerifier",
+      "name": "usdcDecimals",
       "docs": [
-        "The only key allowed to mark a wallet as identity-verified.",
-        "",
-        "DEMO ONLY: this is derived from the public seed",
-        "sha256(\"chip-in:demo-kyc-verifier:v1\"), so anyone can act as this",
-        "verifier. The on-chain check is real; the identity check behind it is a",
-        "mock. For production, replace this with the key of a real KYC provider",
-        "that signs only after checking documents on its own server."
+        "USDC has 6 decimals on every cluster; `transfer_checked` verifies it."
       ],
-      "type": "pubkey",
-      "value": "6heuxcXmpLasM5dYeoFFFAXnhGLKLZNG4mPGFMZfqX3z"
+      "type": "u8",
+      "value": "6"
     },
     {
-      "name": "verificationSeed",
+      "name": "usdcMint",
       "docs": [
-        "PDA seed prefix for `Verification` accounts."
+        "LOCALNET / TESTS ONLY: a stand-in \"USDC\" mint whose address comes from the",
+        "public seed sha256(\"chip-in:localnet-test-usdc:v1\"), so tests and the local",
+        "seed script can create it at exactly this address. Worthless by design."
       ],
-      "type": "bytes",
-      "value": "[118, 101, 114, 105, 102, 105, 99, 97, 116, 105, 111, 110]"
+      "type": "pubkey",
+      "value": "BSMC8D2tMSKrz5HFsNKJmAHDDsocVD5MypWD9podcoUe"
     }
   ]
 };

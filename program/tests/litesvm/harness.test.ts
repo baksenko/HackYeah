@@ -48,7 +48,7 @@ describe("litesvm harness", () => {
     await program.methods
       .createCampaign(id, "Harness check", new anchor.BN(1_000_000_000), new anchor.BN(h.now() + 3600),
         organizer.publicKey, invite.publicKey, 0, "", "")
-      .accountsPartial({ organizer: organizer.publicKey, campaign, verification: null, systemProgram: SystemProgram.programId })
+      .accountsPartial({ organizer: organizer.publicKey, campaign, systemProgram: SystemProgram.programId })
       .signers([organizer])
       .rpc();
 

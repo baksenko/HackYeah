@@ -3,14 +3,13 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { Keypair, PublicKey, SystemProgram } from '@solana/web3.js'
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 
 import { Address } from '../components/Address'
 import { ReviewPanel, type ReviewView } from '../components/ReviewPanel'
 import { TxResult } from '../components/TxResult'
 import { CAMPAIGN_ACCOUNT_SPACE, accountDeposit, networkFee } from '../lib/fees'
 import { encodeInvite, rememberInvite } from '../lib/invite'
-import { useVerification, verificationPda } from '../lib/kyc'
 import {
   MAX_DESCRIPTION_BYTES,
   MAX_IMAGE_URL_BYTES,
@@ -57,7 +56,6 @@ export function CreateCampaignPage() {
   const wallet = useWallet()
   const navigate = useNavigate()
   const now = useChainClock()
-  const verification = useVerification()
 
   const [visibility, setVisibility] = useState<'private' | 'public'>('private')
   const [tags, setTags] = useState<Tag[]>([])
@@ -73,9 +71,6 @@ export function CreateCampaignPage() {
   const [outcome, setOutcome] = useState<TxOutcome | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
-
-  // Public campaigns need a verified organizer; the program enforces it too.
-  const needsVerification = visibility === 'public' && verification.status !== 'verified'
 
   const titleBytes = byteLength(title)
   const descriptionBytes = byteLength(description.trim())
@@ -109,8 +104,6 @@ export function CreateCampaignPage() {
       .accountsPartial({
         organizer,
         campaign: d.campaign,
-        // Only a public campaign needs it; the seeds bind it to this organizer.
-        verification: d.invite ? null : verificationPda(organizer),
         systemProgram: SystemProgram.programId,
       })
       .transaction()
@@ -122,10 +115,6 @@ export function CreateCampaignPage() {
 
     if (!wallet.publicKey || !wallet.signTransaction) {
       setFormError('Connect a wallet first.')
-      return
-    }
-    if (needsVerification) {
-      setFormError('Verify your identity before opening a public campaign.')
       return
     }
 
@@ -310,17 +299,6 @@ export function CreateCampaignPage() {
           </button>
         </div>
 
-        {needsVerification && (
-          <div className="notice notice-blocked">
-            <strong>Public campaigns need a verified identity.</strong>
-            <p>
-              Crowdfunding takes money from strangers, so organizers must verify who they are first.
-              Private campaigns for friends do not need this.
-            </p>
-            <Link to="/verify">Verify your identity →</Link>
-          </div>
-        )}
-
         <label>
           <span>What is it for?</span>
           <input
@@ -491,7 +469,7 @@ export function CreateCampaignPage() {
             onBack={() => setDraft(null)}
           />
         ) : (
-          <button type="submit" className="button button-primary" disabled={busy || needsVerification}>
+          <button type="submit" className="button button-primary" disabled={busy}>
             {busy ? 'Preparing…' : 'Review and create'}
           </button>
         )}

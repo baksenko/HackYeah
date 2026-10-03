@@ -36,10 +36,6 @@ pub enum FundraiserError {
     NicknameTooLong,
     #[msg("A campaign can have at most 5 tags")]
     TooManyTags,
-    #[msg("Opening a public campaign requires a verified identity")]
-    KycRequired,
-    #[msg("Only the KYC verifier can verify an identity")]
-    NotVerifier,
     #[msg("Description must be at most 500 bytes")]
     DescriptionTooLong,
     #[msg("Image link must be at most 200 bytes")]

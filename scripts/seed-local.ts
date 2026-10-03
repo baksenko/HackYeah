@@ -11,16 +11,12 @@
 // Local only. The devnet demo is driven through the UI with real wallets.
 import * as anchor from "@coral-xyz/anchor";
 import { Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
-import { createHash } from "crypto";
 import fs from "fs";
 
 const RPC = "http://127.0.0.1:8899";
 const idl = JSON.parse(fs.readFileSync(new URL("../program/target/idl/fundraiser.json", import.meta.url), "utf8"));
 const CAMPAIGN_SEED = Buffer.from("campaign");
 const CONTRIBUTION_SEED = Buffer.from("contribution");
-const VERIFICATION_SEED = Buffer.from("verification");
-// The public demo KYC verifier -- see program/programs/fundraiser/src/constants.rs.
-const DEMO_VERIFIER = Keypair.fromSeed(createHash("sha256").update("chip-in:demo-kyc-verifier:v1").digest());
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
@@ -44,17 +40,6 @@ async function main() {
 
   const chainNow = async () => (await connection.getBlockTime(await connection.getSlot()))!;
 
-  // Public campaigns need a verified organizer; this seeds one with the demo verifier.
-  const verification = PublicKey.findProgramAddressSync(
-    [VERIFICATION_SEED, organizer.publicKey.toBuffer()], program.programId)[0];
-  if (!(await connection.getAccountInfo(verification))) {
-    await program.methods.verifyIdentity()
-      .accountsPartial({ wallet: organizer.publicKey, verifier: DEMO_VERIFIER.publicKey, verification,
-        systemProgram: SystemProgram.programId })
-      .signers([DEMO_VERIFIER]).rpc();
-    console.log("verified organizer", organizer.publicKey.toBase58());
-  }
-
   let id = 0n;
   const create = async (title: string, goalSol: number, secs: number, invite: Keypair | null = null, tagBits: number[] = [], description = "", imageUrl = "") => {
     const tags = tagBits.reduce((m, b) => (m | (1 << b)) >>> 0, 0);
@@ -67,8 +52,7 @@ async function main() {
       new anchor.BN(campaignId.toString()), title,
       new anchor.BN(goalSol * LAMPORTS_PER_SOL), new anchor.BN(deadline), organizer.publicKey,
       invite ? invite.publicKey : null, tags, description, imageUrl)
-      .accountsPartial({ organizer: organizer.publicKey, campaign,
-        verification: invite ? null : verification, systemProgram: SystemProgram.programId })
+      .accountsPartial({ organizer: organizer.publicKey, campaign, systemProgram: SystemProgram.programId })
       .rpc();
     console.log(`created ${invite ? "PRIVATE" : "public "} "${title}" -> ${campaign.toBase58()} (deadline +${secs}s)`);
     if (invite) {

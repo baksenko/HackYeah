@@ -13,8 +13,6 @@ const PLAIN_LANGUAGE: Record<string, string> = {
   GoalReached: 'The goal was reached, so the money belongs to the recipient and cannot be refunded.',
   NotRecipient: 'Only the recipient chosen when this campaign was created can withdraw.',
   AlreadyWithdrawn: 'The money has already been paid out.',
-  KycRequired: 'Public campaigns need a verified organizer. Verify your identity first — private campaigns for friends do not need it.',
-  NotVerifier: 'Only the KYC verifier can verify an identity.',
   DescriptionTooLong: 'The description is too long: the program allows 500 bytes.',
   ImageUrlTooLong: 'The photo link is too long: the program allows 200 bytes.',
   InvalidImageUrl: 'The photo link must start with https://.',
