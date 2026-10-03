@@ -11,6 +11,10 @@ name = "fundraiser"
 
 [features]
 default = []
+# Which USDC mint the program accepts. Neither = localnet (a test mint).
+# Build with: anchor build -- --features devnet   (or mainnet)
+devnet = []
+mainnet = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-log-ix-name = []
