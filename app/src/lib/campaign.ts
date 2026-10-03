@@ -1,19 +1,23 @@
 import { BN } from '@coral-xyz/anchor'
 import { PublicKey } from '@solana/web3.js'
 
-import type { FundraiserProgram } from './program'
+/** The program's stored status (`CampaignStatus` in state.rs), as Anchor decodes it. */
+export type OnChainStatus = { active: object } | { succeeded: object } | { withdrawn: object } | { cancelled: object }
 
 export type Campaign = {
   address: PublicKey
   organizer: PublicKey
   recipient: PublicKey
+  /** Always the program's USDC_MINT. */
+  mint: PublicKey
   campaignId: BN
+  status: OnChainStatus
   title: string
+  /** In USDC base units (6 decimals). */
   goal: BN
   deadline: BN
   totalRaised: BN
   totalRefunded: BN
-  withdrawn: boolean
   /** Set for private campaigns: contributing needs this key's signature. */
   invite: PublicKey | null
   /** Bitmask; decode with `decodeTags` from ./tags. */
@@ -29,6 +33,7 @@ export type Contribution = {
   address: PublicKey
   campaign: PublicKey
   contributor: PublicKey
+  /** In USDC base units. */
   amount: BN
   /** Chosen by the contributor; empty means "show my address". */
   nickname: string
@@ -37,24 +42,39 @@ export type Contribution = {
 
 export const isPrivate = (campaign: Campaign) => campaign.invite !== null
 
-export type CampaignStatus = 'open' | 'succeeded' | 'failed' | 'withdrawn'
+/**
+ * What a person needs to know about a campaign right now:
+ * - open: taking contributions;
+ * - succeeded: goal reached, waiting for someone to send the money to the recipient;
+ * - failed: deadline passed without reaching the goal, refunds open;
+ * - cancelled: called off by the organizer, refunds open;
+ * - withdrawn: paid out to the recipient.
+ */
+export type CampaignStatus = 'open' | 'succeeded' | 'failed' | 'cancelled' | 'withdrawn'
 
 export const STATUS_LABEL: Record<CampaignStatus, string> = {
   open: 'Open',
-  succeeded: 'Succeeded',
-  failed: 'Failed',
-  withdrawn: 'Withdrawn',
+  succeeded: 'Goal reached',
+  failed: 'Goal missed',
+  cancelled: 'Cancelled',
+  withdrawn: 'Paid out',
 }
 
 /**
- * Derived purely from on-chain fields plus the clock. The UI never decides
- * this -- it only reads what the program already recorded.
+ * Read from the program's stored status, plus the clock for one case the
+ * program also decides by the clock: an Active campaign past its deadline has
+ * failed. The UI never decides anything else.
  */
 export function campaignStatus(campaign: Campaign, nowSeconds: number): CampaignStatus {
-  if (campaign.withdrawn) return 'withdrawn'
-  if (nowSeconds < campaign.deadline.toNumber()) return 'open'
-  return campaign.totalRaised.gte(campaign.goal) ? 'succeeded' : 'failed'
+  const stored = Object.keys(campaign.status)[0]
+  if (stored === 'withdrawn') return 'withdrawn'
+  if (stored === 'cancelled') return 'cancelled'
+  if (stored === 'succeeded') return 'succeeded'
+  return nowSeconds < campaign.deadline.toNumber() ? 'open' : 'failed'
 }
+
+/** Refunds are open when the goal was missed or the campaign was cancelled. */
+export const refundsOpen = (status: CampaignStatus) => status === 'failed' || status === 'cancelled'
 
 export const progressRatio = (campaign: Campaign): number => {
   const goal = Number(campaign.goal.toString())
@@ -64,47 +84,3 @@ export const progressRatio = (campaign: Campaign): number => {
 
 export const secondsLeft = (campaign: Campaign, nowSeconds: number): number =>
   campaign.deadline.toNumber() - nowSeconds
-
-export async function fetchCampaigns(program: FundraiserProgram): Promise<Campaign[]> {
-  // `.all()` is getProgramAccounts filtered by the Campaign discriminator.
-  const accounts = await program.account.campaign.all()
-  return accounts
-    .map((a) => ({ address: a.publicKey, ...(a.account as Omit<Campaign, 'address'>) }))
-    .sort((a, b) => b.deadline.cmp(a.deadline))
-}
-
-export async function fetchCampaign(
-  program: FundraiserProgram,
-  address: PublicKey,
-): Promise<Campaign> {
-  const account = await program.account.campaign.fetch(address)
-  return { address, ...(account as Omit<Campaign, 'address'>) }
-}
-
-export async function fetchContributions(
-  program: FundraiserProgram,
-  campaign: PublicKey,
-): Promise<Contribution[]> {
-  // `campaign` is the first field after the discriminator, so one memcmp at
-  // offset 8 finds every contributor of this campaign.
-  const accounts = await program.account.contribution.all([
-    { memcmp: { offset: 8, bytes: campaign.toBase58() } },
-  ])
-  return accounts
-    .map((a) => ({ address: a.publicKey, ...(a.account as Omit<Contribution, 'address'>) }))
-    .sort((a, b) => b.amount.cmp(a.amount))
-}
-
-/**
- * Every campaign this wallet has contributed to. `contributor` sits right
- * after `campaign` (8-byte discriminator + 32-byte pubkey = offset 40).
- */
-export async function fetchMyCampaignKeys(
-  program: FundraiserProgram,
-  wallet: PublicKey,
-): Promise<Set<string>> {
-  const accounts = await program.account.contribution.all([
-    { memcmp: { offset: 40, bytes: wallet.toBase58() } },
-  ])
-  return new Set(accounts.map((a) => (a.account.campaign as PublicKey).toBase58()))
-}

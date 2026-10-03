@@ -3,14 +3,21 @@ import { LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { useCallback, useEffect, useState } from 'react'
 
 import { CLUSTER_LABEL, IS_DEVNET, RPC_ENDPOINT } from '../lib/cluster'
-import { formatSol } from '../lib/format'
+import { formatSol, formatUsdc } from '../lib/format'
+import { tokenAccountOf } from '../lib/program'
+import { sendTransaction } from '../lib/send'
+import { CAN_MINT_TEST_USDC, DEVNET_USDC_FAUCET, mintTestUsdc } from '../lib/testUsdc'
+
+/** How much test USDC one click adds on a local validator. */
+const TEST_USDC_AMOUNT = 500n * 1_000_000n
 
 /** Below this, a wallet cannot realistically pay for a campaign plus fees. */
 const LOW_BALANCE_LAMPORTS = 0.05 * LAMPORTS_PER_SOL
 
 /**
  * Shows what the connected wallet actually holds *on the cluster this app is
- * talking to*, and offers test SOL when it is short.
+ * talking to* -- USDC to contribute, SOL to pay network fees -- and offers
+ * test money when it is short.
  *
  * This exists because the most confusing failure for a newcomer is a wallet
  * that looks funded in Phantom but is empty here — Phantom displays whichever
@@ -18,21 +25,30 @@ const LOW_BALANCE_LAMPORTS = 0.05 * LAMPORTS_PER_SOL
  */
 export function WalletBalance() {
   const { connection } = useConnection()
-  const { publicKey } = useWallet()
+  const { publicKey, signTransaction } = useWallet()
 
   const [lamports, setLamports] = useState<number | null>(null)
+  /** USDC base units; 0 when the wallet has no USDC account yet. */
+  const [usdc, setUsdc] = useState<bigint | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     if (!publicKey) {
       setLamports(null)
+      setUsdc(null)
       return
     }
     try {
       setLamports(await connection.getBalance(publicKey, 'confirmed'))
     } catch {
       setLamports(null)
+    }
+    try {
+      const balance = await connection.getTokenAccountBalance(tokenAccountOf(publicKey), 'confirmed')
+      setUsdc(BigInt(balance.value.amount))
+    } catch {
+      setUsdc(0n) // no USDC account yet
     }
   }, [connection, publicKey])
 
@@ -63,6 +79,26 @@ export function WalletBalance() {
     }
   }, [connection, publicKey, refresh])
 
+  const getTestUsdc = useCallback(async () => {
+    if (!publicKey || !signTransaction) return
+    setBusy(true)
+    setNote(null)
+    try {
+      const { transaction, signer } = mintTestUsdc(publicKey, TEST_USDC_AMOUNT)
+      const result = await sendTransaction(connection, { publicKey, signTransaction }, transaction, {
+        extraSigners: [signer],
+      })
+      await refresh()
+      setNote(
+        result.kind === 'success'
+          ? `Added ${formatUsdc(TEST_USDC_AMOUNT)} of test money.`
+          : `Could not add test USDC: ${result.failure.plain}`,
+      )
+    } finally {
+      setBusy(false)
+    }
+  }, [connection, publicKey, signTransaction, refresh])
+
   if (!publicKey) return null
 
   const isLow = lamports !== null && lamports < LOW_BALANCE_LAMPORTS
@@ -76,8 +112,21 @@ export function WalletBalance() {
   return (
     <div className="balance">
       <div className="balance-row">
-        <span className={`balance-amount ${isLow ? 'balance-low' : ''}`}>
+        <span className="balance-amount">{usdc === null ? '…' : formatUsdc(usdc)}</span>
+        {CAN_MINT_TEST_USDC ? (
+          <button className="link-button" onClick={() => void getTestUsdc()} disabled={busy}>
+            {busy ? 'Adding…' : 'Get test USDC'}
+          </button>
+        ) : (
+          IS_DEVNET && (
+            <a href={DEVNET_USDC_FAUCET} target="_blank" rel="noreferrer">
+              Get devnet USDC
+            </a>
+          )
+        )}
+        <span className={`balance-amount balance-sol ${isLow ? 'balance-low' : ''}`}>
           {lamports === null ? '…' : formatSol(lamports, 3)}
+          <small> for fees</small>
         </span>
         <button className="link-button" onClick={() => void getTestSol()} disabled={busy}>
           {busy ? 'Adding…' : 'Get test SOL'}

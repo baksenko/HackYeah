@@ -1,9 +1,9 @@
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { fetchCampaigns, fetchMyCampaignKeys, isPrivate, type Campaign } from './campaign'
+import { isPrivate, type Campaign } from './campaign'
+import { useCampaignIndex } from './indexer'
 import { recallInvite } from './invite'
-import { useProgram } from './program'
 
 /**
  * Every campaign this viewer may see listed: all public ones, plus the
@@ -14,7 +14,7 @@ import { useProgram } from './program'
  * campaign is enforced by the program, not here.
  */
 export function useCampaignDirectory() {
-  const program = useProgram()
+  const index = useCampaignIndex()
   const { publicKey } = useWallet()
 
   const [all, setAll] = useState<Campaign[] | null>(null)
@@ -25,15 +25,15 @@ export function useCampaignDirectory() {
     try {
       setError(null)
       const [campaigns, mine] = await Promise.all([
-        fetchCampaigns(program),
-        publicKey ? fetchMyCampaignKeys(program, publicKey) : Promise.resolve(new Set<string>()),
+        index.campaigns(),
+        publicKey ? index.campaignsContributedBy(publicKey) : Promise.resolve(new Set<string>()),
       ])
       setAll(campaigns)
       setJoined(mine)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not read campaigns from the chain.')
     }
-  }, [program, publicKey])
+  }, [index, publicKey])
 
   useEffect(() => {
     void reload()

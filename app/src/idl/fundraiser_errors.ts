@@ -11,15 +11,21 @@ export const FundraiserErrorCode = {
   InvalidGoal: 6008,
   InvalidDeadline: 6009,
   MathOverflow: 6010,
-  InsufficientCampaignBalance: 6011,
-  CampaignNotSettled: 6012,
-  InviteRequired: 6013,
-  InvalidInvite: 6014,
-  NicknameTooLong: 6015,
-  TooManyTags: 6016,
-  DescriptionTooLong: 6017,
-  ImageUrlTooLong: 6018,
-  InvalidImageUrl: 6019
+  CampaignNotSettled: 6011,
+  InviteRequired: 6012,
+  InvalidInvite: 6013,
+  NicknameTooLong: 6014,
+  TooManyTags: 6015,
+  DescriptionTooLong: 6016,
+  ImageUrlTooLong: 6017,
+  InvalidImageUrl: 6018,
+  WrongMint: 6019,
+  NotOrganizer: 6020,
+  CampaignNotActive: 6021,
+  RecipientLocked: 6022,
+  InvalidRecipient: 6023,
+  RecipientChanged: 6024,
+  CampaignCancelled: 6025
 };
 
 export type FundraiserErrorName = keyof typeof FundraiserErrorCode;

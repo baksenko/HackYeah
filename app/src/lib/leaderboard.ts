@@ -2,7 +2,6 @@ import { BN } from '@coral-xyz/anchor'
 import type { PublicKey } from '@solana/web3.js'
 
 import type { Contribution } from './campaign'
-import type { FundraiserProgram } from './program'
 
 export type LeaderboardRow = {
   contributor: PublicKey
@@ -12,12 +11,6 @@ export type LeaderboardRow = {
   campaigns: number
   /** Standard competition rank: equal totals share a rank (1, 2, 2, 4). */
   rank: number
-}
-
-/** Every contribution receipt on chain, across all campaigns. */
-export async function fetchAllContributions(program: FundraiserProgram): Promise<Contribution[]> {
-  const accounts = await program.account.contribution.all()
-  return accounts.map((a) => ({ address: a.publicKey, ...(a.account as Omit<Contribution, 'address'>) }))
 }
 
 /**

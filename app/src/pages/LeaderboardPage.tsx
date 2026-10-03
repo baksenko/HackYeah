@@ -4,9 +4,9 @@ import { Link } from 'react-router-dom'
 
 import type { Contribution } from '../lib/campaign'
 import { explorerAddress } from '../lib/cluster'
-import { formatSol, shortKey } from '../lib/format'
-import { buildLeaderboard, fetchAllContributions, type LeaderboardRow } from '../lib/leaderboard'
-import { useProgram } from '../lib/program'
+import { formatUsdc, shortKey } from '../lib/format'
+import { useCampaignIndex } from '../lib/indexer'
+import { buildLeaderboard, type LeaderboardRow } from '../lib/leaderboard'
 import { useCampaignDirectory } from '../lib/useCampaignDirectory'
 
 /** How many rows to list before only "your position" is shown below. */
@@ -17,7 +17,7 @@ const TOP = 50
  * the contribution receipts on chain -- there is no leaderboard server.
  */
 export function LeaderboardPage() {
-  const program = useProgram()
+  const index = useCampaignIndex()
   const { publicKey } = useWallet()
   const directory = useCampaignDirectory()
 
@@ -27,7 +27,8 @@ export function LeaderboardPage() {
 
   useEffect(() => {
     let cancelled = false
-    fetchAllContributions(program)
+    index
+      .allContributions()
       .then((list) => {
         if (!cancelled) {
           setContributions(list)
@@ -40,7 +41,7 @@ export function LeaderboardPage() {
     return () => {
       cancelled = true
     }
-  }, [program, refreshKey])
+  }, [index, refreshKey])
 
   const rows = useMemo(() => {
     if (!contributions) return null
@@ -161,7 +162,7 @@ function LeaderRow({ row, isMe }: { row: LeaderboardRow; isMe: boolean }) {
       </td>
       <td className="right">{row.campaigns}</td>
       <td className="right">
-        <strong>{formatSol(row.total)}</strong>
+        <strong>{formatUsdc(row.total)}</strong>
       </td>
     </tr>
   )

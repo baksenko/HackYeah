@@ -158,6 +158,7 @@ h2 { font-size: 18px; }
 .badge-succeeded { background: var(--ok-bg); color: var(--ok); border-color: #b4ecc8; }
 .badge-failed { background: var(--bad-bg); color: var(--bad); border-color: #ffd0d0; }
 .badge-withdrawn { background: #f3f2f7; color: #4b4760; border-color: #e1dfea; }
+.badge-cancelled { background: var(--warn-bg); color: var(--warn); border-color: #ffe0b5; }
 .badge-private { background: var(--violet-soft); color: var(--violet-deep); border-color: #dccfff; }
 .badge-public { background: #eef4ff; color: #1d4ed8; border-color: #c7d7fe; }
 
@@ -299,6 +300,8 @@ code { background: var(--violet-soft); padding: 1px 6px; border-radius: 5px; fon
 }
 .balance-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .balance-amount { font-weight: 700; font-variant-numeric: tabular-nums; }
+.balance-sol { margin-left: auto; font-weight: 600; color: var(--ink-soft); }
+.balance-sol small { font-weight: 400; }
 .balance-low { color: var(--bad); }
 .balance-warning { margin: 8px 0 0; font-size: 13px; color: var(--ink-soft); }
 

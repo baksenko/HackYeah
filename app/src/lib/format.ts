@@ -1,8 +1,43 @@
 import { BN } from '@coral-xyz/anchor'
 import { LAMPORTS_PER_SOL } from '@solana/web3.js'
 
+/** USDC has 6 decimals on every cluster (USDC_DECIMALS in the program). */
+export const USDC_DECIMALS = 6
+const USDC_UNIT = 10n ** BigInt(USDC_DECIMALS)
+
+const toBigInt = (v: BN | number | bigint): bigint =>
+  typeof v === 'bigint' ? v : BigInt(typeof v === 'number' ? Math.trunc(v) : v.toString())
+
 /**
- * Everything the user sees is in SOL. Lamports never reach the screen.
+ * Campaign money is USDC: "12.5 USDC". Exact -- base units are split with
+ * integer arithmetic, never through a float. Shows up to `maxDecimals`
+ * places, trailing zeros trimmed.
+ */
+export function formatUsdc(baseUnits: BN | number | bigint, maxDecimals = 2): string {
+  const value = toBigInt(baseUnits)
+  const negative = value < 0n
+  const abs = negative ? -value : value
+  const whole = (abs / USDC_UNIT).toLocaleString()
+  const fraction = (abs % USDC_UNIT).toString().padStart(USDC_DECIMALS, '0').slice(0, maxDecimals).replace(/0+$/, '')
+  return `${negative ? '-' : ''}${whole}${fraction ? `.${fraction}` : ''} USDC`
+}
+
+/**
+ * Parses what a person typed ("12", "12.5", "0,25") into USDC base units.
+ * Exact, so 0.1 is 100000 and never 99999.
+ */
+export function parseUsdc(text: string): BN {
+  const cleaned = text.trim().replace(',', '.')
+  const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(cleaned)
+  if (!match) throw new Error('Enter an amount like 25 or 12.50 (at most 6 decimal places)')
+  const units = BigInt(match[1]) * USDC_UNIT + BigInt((match[2] ?? '').padEnd(USDC_DECIMALS, '0'))
+  if (units <= 0n) throw new Error('Enter an amount greater than zero')
+  return new BN(units.toString())
+}
+
+/**
+ * Network fees and account deposits are paid in SOL. Lamports never reach
+ * the screen.
  */
 export function toSol(lamports: BN | number | bigint): number {
   const n = typeof lamports === 'object' ? Number(lamports.toString()) : Number(lamports)
@@ -16,13 +51,6 @@ export function formatSol(lamports: BN | number | bigint, maxDecimals = 4): stri
     maximumFractionDigits: maxDecimals,
   })
   return `${text} SOL`
-}
-
-export function solToLamports(sol: string | number): BN {
-  const value = typeof sol === 'string' ? Number.parseFloat(sol) : sol
-  if (!Number.isFinite(value) || value <= 0) throw new Error('Enter an amount greater than zero')
-  // Round rather than truncate, so 0.1 does not become 99999999 lamports.
-  return new BN(Math.round(value * LAMPORTS_PER_SOL))
 }
 
 /** Shortens a key for display without hiding it entirely. */
