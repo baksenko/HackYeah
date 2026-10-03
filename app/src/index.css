@@ -409,3 +409,12 @@ code { background: var(--violet-soft); padding: 1px 6px; border-radius: 5px; fon
 /* Keep the first lines of a card clear of the emoji badge that overhangs the banner. */
 .card-body { padding-top: 20px; }
 .card-body > :first-child { padding-right: 52px; }
+
+/* ------------------------------------------------------------- leaderboard */
+.leaderboard-head h2 { font-size: 20px; }
+.leaderboard-scroll { overflow-x: auto; }
+.leaderboard td { vertical-align: middle; }
+.leaderboard-rank { width: 3ch; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+.leaderboard tbody tr:nth-child(-n + 3) .leaderboard-rank { color: var(--violet-deep); }
+.leaderboard-me td { background: var(--violet-soft); }
+.leaderboard-gap td { text-align: center; color: var(--ink-soft); padding: 2px; }

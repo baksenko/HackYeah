@@ -6,6 +6,7 @@ import { CampaignPage } from './pages/CampaignPage'
 import { CampaignsPage } from './pages/CampaignsPage'
 import { CreateCampaignPage } from './pages/CreateCampaignPage'
 import { HomePage } from './pages/HomePage'
+import { LeaderboardPage } from './pages/LeaderboardPage'
 import { PROGRAM_ID } from './lib/program'
 import { CLUSTER_LABEL, explorerAddress } from './lib/cluster'
 
@@ -25,6 +26,7 @@ export function App() {
             Home
           </NavLink>
           <NavLink to="/campaigns">Campaigns</NavLink>
+          <NavLink to="/leaderboard">Leaderboard</NavLink>
           <NavLink to="/new">Start a campaign</NavLink>
         </nav>
         <div className="topbar-right">
@@ -39,6 +41,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/campaigns" element={<CampaignsPage />} />
+          <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/new" element={<CreateCampaignPage />} />
           <Route path="/c/:address" element={<CampaignPage />} />
           <Route path="*" element={<p className="empty">Nothing here.</p>} />
