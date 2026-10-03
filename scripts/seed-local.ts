@@ -5,7 +5,7 @@
 //   solana program deploy --url localhost \
 //     --program-id program/target/deploy/fundraiser-keypair.json \
 //     program/target/deploy/fundraiser.so
-//   cd program && npx tsx ../scripts/seed-local.ts
+//   ./scripts/seed-local.sh
 //   cd ../app && VITE_RPC_ENDPOINT=http://127.0.0.1:8899 npm run dev
 //
 // Local only. The devnet demo is driven through the UI with real wallets.

@@ -273,7 +273,7 @@ scripts/
   airdrop.sh                              devnet SOL for demo wallets
   deploy-devnet.sh                        build + deploy + sync IDL into the app
   make-immutable.sh                       discard the upgrade authority (NOT run)
-  seed-local.ts                           fills a local validator with all four states
+  seed-local.sh / .ts                     fills a local validator with all four states
 ```
 
 **There is no server and no database.** The frontend reads campaigns with
