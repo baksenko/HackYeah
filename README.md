@@ -359,6 +359,39 @@ VITE_RPC_ENDPOINT=http://127.0.0.1:8899 npm run dev
 That override exists only for local development. There is no mainnet option
 anywhere in the app.
 
+### Running the whole flow on a local validator
+
+Useful when the devnet faucet is rate-limiting. Four terminals' worth of setup,
+in order:
+
+```bash
+# 1. validator
+solana-test-validator --ledger program/test-ledger --reset --quiet
+
+# 2. deploy the program to it
+solana program deploy --url localhost \
+  --program-id program/target/deploy/fundraiser-keypair.json \
+  program/target/deploy/fundraiser.so
+
+# 3. optional: campaigns in all four states, to see the UI without waiting
+./scripts/seed-local.sh
+
+# 4. the app
+cd app && VITE_RPC_ENDPOINT=http://127.0.0.1:8899 npm run dev
+```
+
+**Point your wallet at the same network, or nothing will work.** The app and
+the wallet each have their own idea of which cluster they are on, and a wallet
+funded on devnet holds nothing on your local validator. In Phantom: *Settings →
+Developer Settings → Testnet Mode*, then set Solana to **Localnet**
+(`http://127.0.0.1:8899`). Solflare has the equivalent under its network
+settings.
+
+Then click **Get test SOL** in the app to fund the connected wallet. If you
+skip this you will get a bank-level rejection — `Attempt to debit an account
+but found no record of a prior credit` — which simply means the wallet has
+never held SOL on this cluster.
+
 ---
 
 ## Demo walkthrough
