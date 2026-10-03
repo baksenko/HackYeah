@@ -5,7 +5,7 @@ import { CampaignPage } from './pages/CampaignPage'
 import { CreateCampaignPage } from './pages/CreateCampaignPage'
 import { HomePage } from './pages/HomePage'
 import { PROGRAM_ID } from './lib/program'
-import { explorerAddress } from './lib/cluster'
+import { CLUSTER_LABEL, explorerAddress } from './lib/cluster'
 
 export function App() {
   return (
@@ -15,7 +15,7 @@ export function App() {
           Chip&nbsp;In
         </Link>
         <div className="topbar-right">
-          <span className="devnet-pill">Solana devnet · test money only</span>
+          <span className="devnet-pill">{CLUSTER_LABEL} · test money only</span>
           <WalletMultiButton />
         </div>
       </header>

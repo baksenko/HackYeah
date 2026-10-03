@@ -1,4 +1,4 @@
-import { explorerTx } from '../lib/cluster'
+import { CLUSTER_LABEL, explorerTx } from '../lib/cluster'
 import type { TxOutcome } from '../lib/send'
 
 /**
@@ -9,7 +9,7 @@ export function TxResult({ outcome, onDismiss }: { outcome: TxOutcome; onDismiss
   if (outcome.kind === 'success') {
     return (
       <div className="notice notice-success">
-        <strong>Done.</strong> The transaction was confirmed on devnet.
+        <strong>Done.</strong> The transaction was confirmed on the {CLUSTER_LABEL}.
         <a href={explorerTx(outcome.signature)} target="_blank" rel="noreferrer">
           View it on Solana Explorer →
         </a>
@@ -30,8 +30,8 @@ export function TxResult({ outcome, onDismiss }: { outcome: TxOutcome; onDismiss
           See the failed transaction on Solana Explorer →
         </a>
         <p className="aside">
-          This transaction really was submitted and really was rejected by the program on
-          Solana — not hidden by this web page.
+          This transaction really was submitted and really was rejected by the program
+          on chain — not hidden by this web page.
         </p>
         {onDismiss && <button className="link-button" onClick={onDismiss}>Dismiss</button>}
       </div>

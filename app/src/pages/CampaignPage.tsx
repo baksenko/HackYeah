@@ -16,7 +16,7 @@ import {
   type Campaign,
   type Contribution,
 } from '../lib/campaign'
-import { explorerAddress } from '../lib/cluster'
+import { CLUSTER_LABEL, explorerAddress } from '../lib/cluster'
 import { PERMISSIONS, whatCanHappenNow } from '../lib/explain'
 import { formatCountdown, formatDateTime, formatSol, shortKey, solToLamports } from '../lib/format'
 import { contributionPda, useProgram } from '../lib/program'
@@ -57,7 +57,7 @@ export function CampaignPage() {
       setCampaign(next)
       setContributions(contribs)
     } catch {
-      setLoadError('No campaign exists at this address on devnet.')
+      setLoadError(`No campaign exists at this address on the ${CLUSTER_LABEL}.`)
     }
   }, [program, campaignKey])
 
@@ -283,7 +283,7 @@ export function CampaignPage() {
             <h3>Prove it to yourself</h3>
             <p>
               You organised this campaign, or the money is meant for you. Try taking it out right
-              now, before the deadline. This really sends the transaction to Solana — this page
+              now, before the deadline. This really sends the transaction to the chain — this page
               will not stop you. The program will.
             </p>
             <button
