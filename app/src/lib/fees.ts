@@ -6,11 +6,14 @@ import type { Connection, PublicKey, Transaction } from '@solana/web3.js'
  * payer locks up when the account is created. Update these if the structs change.
  *
  *   Campaign:     8 + 32 + 32 + 8 + (4 + 64) + 8 + 8 + 8 + 8 + 1
- *                 + (1 + 32) invite + 4 tags + 1 bump             = 219
+ *                 + (1 + 32) invite + 4 tags
+ *                 + (4 + 500) description + (4 + 200) image link + 1 bump = 927
  *   Contribution: 8 + 32 + 32 + 8 + (4 + 32) nickname + 1 bump    = 117
+ *   Verification: 8 + 32 + 8 + 1                                  = 49
  */
-export const CAMPAIGN_ACCOUNT_SPACE = 219
+export const CAMPAIGN_ACCOUNT_SPACE = 927
 export const CONTRIBUTION_ACCOUNT_SPACE = 117
+export const VERIFICATION_ACCOUNT_SPACE = 49
 
 /** What one signature costs on Solana when the cluster cannot tell us. */
 const FALLBACK_FEE_LAMPORTS = 5000

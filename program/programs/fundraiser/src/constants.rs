@@ -17,3 +17,23 @@ pub const MAX_TAGS: u32 = 5;
 
 /// Maximum contributor nickname length, in bytes.
 pub const MAX_NICKNAME_LEN: usize = 32;
+
+/// Maximum campaign description length, in bytes.
+pub const MAX_DESCRIPTION_LEN: usize = 500;
+
+/// Maximum campaign image link length, in bytes.
+pub const MAX_IMAGE_URL_LEN: usize = 200;
+
+/// PDA seed prefix for `Verification` accounts.
+#[constant]
+pub const VERIFICATION_SEED: &[u8] = b"verification";
+
+/// The only key allowed to mark a wallet as identity-verified.
+///
+/// DEMO ONLY: this is derived from the public seed
+/// sha256("chip-in:demo-kyc-verifier:v1"), so anyone can act as this
+/// verifier. The on-chain check is real; the identity check behind it is a
+/// mock. For production, replace this with the key of a real KYC provider
+/// that signs only after checking documents on its own server.
+#[constant]
+pub const KYC_VERIFIER: Pubkey = pubkey!("6heuxcXmpLasM5dYeoFFFAXnhGLKLZNG4mPGFMZfqX3z");

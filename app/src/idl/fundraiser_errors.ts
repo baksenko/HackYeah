@@ -16,7 +16,12 @@ export const FundraiserErrorCode = {
   InviteRequired: 6013,
   InvalidInvite: 6014,
   NicknameTooLong: 6015,
-  TooManyTags: 6016
+  TooManyTags: 6016,
+  KycRequired: 6017,
+  NotVerifier: 6018,
+  DescriptionTooLong: 6019,
+  ImageUrlTooLong: 6020,
+  InvalidImageUrl: 6021
 };
 
 export type FundraiserErrorName = keyof typeof FundraiserErrorCode;

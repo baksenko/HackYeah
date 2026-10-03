@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { campaignStatus, isPrivate, secondsLeft, type Campaign } from '../lib/campaign'
@@ -12,13 +13,25 @@ export function CampaignCard({ campaign, now }: { campaign: Campaign; now: numbe
   const priv = isPrivate(campaign)
   const tags = decodeTags(campaign.tags)
   const lead = tags[0]
+  const [photoFailed, setPhotoFailed] = useState(false)
+  const photo = campaign.imageUrl && !photoFailed ? campaign.imageUrl : null
 
   return (
     <Link to={`/c/${campaign.address.toBase58()}`} className="card">
       <div className={`card-banner ${priv ? 'banner-private' : 'banner-public'}`}>
+        {photo && (
+          <img
+            className="card-photo"
+            src={photo}
+            alt=""
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={() => setPhotoFailed(true)}
+          />
+        )}
         <span className="card-kind">{priv ? '🔒 Friends' : '🌍 Crowdfunding'}</span>
         <StatusBadge status={status} />
-        {lead && (
+        {lead && !photo && (
           <span className="card-emoji" aria-hidden>
             {lead.emoji}
           </span>

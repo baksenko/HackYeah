@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 
 import { Address } from '../components/Address'
+import { CampaignPhoto } from '../components/CampaignPhoto'
 import { Progress } from '../components/Progress'
 import { ReviewPanel, type ReviewView } from '../components/ReviewPanel'
 import { SharePanel } from '../components/SharePanel'
@@ -394,6 +395,8 @@ export function CampaignPage() {
         ← All campaigns
       </Link>
 
+      <CampaignPhoto url={campaign.imageUrl} title={campaign.title} />
+
       <header className="campaign-head">
         <div>
           <h1>{campaign.title}</h1>
@@ -422,6 +425,8 @@ export function CampaignPage() {
           <StatusBadge status={status} />
         </div>
       </header>
+
+      {campaign.description && <p className="campaign-description">{campaign.description}</p>}
 
       <Progress campaign={campaign} />
 

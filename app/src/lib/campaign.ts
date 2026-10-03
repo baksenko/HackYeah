@@ -18,6 +18,10 @@ export type Campaign = {
   invite: PublicKey | null
   /** Bitmask; decode with `decodeTags` from ./tags. */
   tags: number
+  /** The organizer's own words; may be empty. */
+  description: string
+  /** An `https://` link to a photo hosted elsewhere, or empty. */
+  imageUrl: string
   bump: number
 }
 

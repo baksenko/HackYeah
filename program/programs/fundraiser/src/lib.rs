@@ -5,6 +5,10 @@
 //! recipient named at creation can withdraw. If it is not, every contributor
 //! can reclaim exactly what they paid in. Nothing here can be edited after a
 //! campaign is created, and there is no admin, no fee and no pause switch.
+//!
+//! One trusted party exists: `KYC_VERIFIER`, which vouches for the organizers
+//! of public campaigns. It can only create verification records -- it has no
+//! power over any campaign or any money. In this build it is a public demo key.
 
 pub mod constants;
 pub mod error;
@@ -34,6 +38,8 @@ pub mod fundraiser {
         recipient: Pubkey,
         invite: Option<Pubkey>,
         tags: u32,
+        description: String,
+        image_url: String,
     ) -> Result<()> {
         instructions::create_campaign::handle_create_campaign(
             ctx,
@@ -44,6 +50,8 @@ pub mod fundraiser {
             recipient,
             invite,
             tags,
+            description,
+            image_url,
         )
     }
 
@@ -61,6 +69,12 @@ pub mod fundraiser {
     /// Take your own money back. Signer: a contributor, after a failed deadline.
     pub fn refund(ctx: Context<Refund>) -> Result<()> {
         instructions::refund::handle_refund(ctx)
+    }
+
+    /// Mark a wallet as identity-verified, which unlocks public campaigns.
+    /// Signers: the wallet (pays rent) and `KYC_VERIFIER`.
+    pub fn verify_identity(ctx: Context<VerifyIdentity>) -> Result<()> {
+        instructions::verify_identity::handle_verify_identity(ctx)
     }
 
     /// Reclaim the rent deposit once everything is settled. Signer: the organizer.

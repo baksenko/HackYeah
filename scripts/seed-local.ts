@@ -11,12 +11,16 @@
 // Local only. The devnet demo is driven through the UI with real wallets.
 import * as anchor from "@coral-xyz/anchor";
 import { Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
+import { createHash } from "crypto";
 import fs from "fs";
 
 const RPC = "http://127.0.0.1:8899";
 const idl = JSON.parse(fs.readFileSync(new URL("../program/target/idl/fundraiser.json", import.meta.url), "utf8"));
 const CAMPAIGN_SEED = Buffer.from("campaign");
 const CONTRIBUTION_SEED = Buffer.from("contribution");
+const VERIFICATION_SEED = Buffer.from("verification");
+// The public demo KYC verifier -- see program/programs/fundraiser/src/constants.rs.
+const DEMO_VERIFIER = Keypair.fromSeed(createHash("sha256").update("chip-in:demo-kyc-verifier:v1").digest());
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
@@ -40,8 +44,19 @@ async function main() {
 
   const chainNow = async () => (await connection.getBlockTime(await connection.getSlot()))!;
 
+  // Public campaigns need a verified organizer; this seeds one with the demo verifier.
+  const verification = PublicKey.findProgramAddressSync(
+    [VERIFICATION_SEED, organizer.publicKey.toBuffer()], program.programId)[0];
+  if (!(await connection.getAccountInfo(verification))) {
+    await program.methods.verifyIdentity()
+      .accountsPartial({ wallet: organizer.publicKey, verifier: DEMO_VERIFIER.publicKey, verification,
+        systemProgram: SystemProgram.programId })
+      .signers([DEMO_VERIFIER]).rpc();
+    console.log("verified organizer", organizer.publicKey.toBase58());
+  }
+
   let id = 0n;
-  const create = async (title: string, goalSol: number, secs: number, invite: Keypair | null = null, tagBits: number[] = []) => {
+  const create = async (title: string, goalSol: number, secs: number, invite: Keypair | null = null, tagBits: number[] = [], description = "", imageUrl = "") => {
     const tags = tagBits.reduce((m, b) => (m | (1 << b)) >>> 0, 0);
     const campaignId = ++id;
     const idBytes = Buffer.alloc(8); idBytes.writeBigUInt64LE(campaignId);
@@ -51,8 +66,9 @@ async function main() {
     await program.methods.createCampaign(
       new anchor.BN(campaignId.toString()), title,
       new anchor.BN(goalSol * LAMPORTS_PER_SOL), new anchor.BN(deadline), organizer.publicKey,
-      invite ? invite.publicKey : null, tags)
-      .accountsPartial({ organizer: organizer.publicKey, campaign, systemProgram: SystemProgram.programId })
+      invite ? invite.publicKey : null, tags, description, imageUrl)
+      .accountsPartial({ organizer: organizer.publicKey, campaign,
+        verification: invite ? null : verification, systemProgram: SystemProgram.programId })
       .rpc();
     console.log(`created ${invite ? "PRIVATE" : "public "} "${title}" -> ${campaign.toBase58()} (deadline +${secs}s)`);
     if (invite) {
@@ -79,24 +95,29 @@ async function main() {
   const H2 = 7200;
 
   // ---- public, open
-  const open = await create("New playground for Zielona Street", 2, H2, null, [T.community, T.localBusiness]);
+  const open = await create("New playground for Zielona Street", 2, H2, null, [T.community, T.localBusiness],
+    "The old swings were removed last spring and nothing replaced them. We want a small playground with swings, a slide and a sandpit on the green at the end of Zielona Street. The council has agreed to install it if we cover the equipment.");
   await give(open.campaign, bob, 0.75, "Kuba");
   await give(open.campaign, carol, 0.4, "Ola");
 
-  const laptops = await create("Laptops for the village school", 4, H2, null, [T.education, T.tech]);
+  const laptops = await create("Laptops for the village school", 4, H2, null, [T.education, T.tech],
+    "Our school shares six old laptops between 80 pupils. Four refurbished laptops would let a whole class do computer lessons at once.");
   await give(laptops.campaign, carol, 2.5, "Ola");
 
-  const clinic = await create("Flood relief for the local clinic", 3, H2, null, [T.medical, T.emergency, T.community]);
+  const clinic = await create("Flood relief for the local clinic", 3, H2, null, [T.medical, T.emergency, T.community],
+    "Last week's flood ruined the clinic's ground floor. This covers new flooring and a replacement fridge for vaccines, so the clinic can reopen.");
   await give(clinic.campaign, bob, 0.5, "Kuba");
 
   // ---- private, open
   const tripInvite = Keypair.generate();
-  const trip = await create("Trip to New Zealand", 3, H2, tripInvite, [T.trip]);
+  const trip = await create("Trip to New Zealand", 3, H2, tripInvite, [T.trip],
+    "Shared deposit for the campervan and the first two nights. Everyone chips in the same amount.");
   await give(trip.campaign, bob, 1.2, "Kuba", tripInvite);
   await give(trip.campaign, carol, 0.8, "Ola", tripInvite);
 
   const giftInvite = Keypair.generate();
-  const gift = await create("Anna's 30th birthday present", 1.5, H2, giftInvite, [T.gift, T.birthday]);
+  const gift = await create("Anna's 30th birthday present", 1.5, H2, giftInvite, [T.gift, T.birthday],
+    "A weekend at the spa she keeps talking about. Keep it a secret!");
   await give(gift.campaign, carol, 0.3, "Ola", giftInvite);
 
   const sofaInvite = Keypair.generate();

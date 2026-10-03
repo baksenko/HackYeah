@@ -3,14 +3,21 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { Keypair, PublicKey, SystemProgram } from '@solana/web3.js'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import { Address } from '../components/Address'
 import { ReviewPanel, type ReviewView } from '../components/ReviewPanel'
 import { TxResult } from '../components/TxResult'
 import { CAMPAIGN_ACCOUNT_SPACE, accountDeposit, networkFee } from '../lib/fees'
 import { encodeInvite, rememberInvite } from '../lib/invite'
-import { MAX_TITLE_BYTES, campaignPda, useProgram } from '../lib/program'
+import { useVerification, verificationPda } from '../lib/kyc'
+import {
+  MAX_DESCRIPTION_BYTES,
+  MAX_IMAGE_URL_BYTES,
+  MAX_TITLE_BYTES,
+  campaignPda,
+  useProgram,
+} from '../lib/program'
 import { MAX_TAGS, encodeTags, tagsForScope, type Tag } from '../lib/tags'
 import { sendTransaction, type TxOutcome } from '../lib/send'
 import { formatSol, solToLamports } from '../lib/format'
@@ -34,8 +41,15 @@ type Draft = {
   recipientKey: PublicKey
   invite: Keypair | null
   tags: number
+  description: string
+  imageUrl: string
   view: ReviewView
 }
+
+const byteLength = (text: string) => new TextEncoder().encode(text).length
+
+/** Mirrors the program's rule: empty, or a link starting with https://. */
+const isAllowedImageUrl = (url: string) => url === '' || /^https:\/\/\S+$/.test(url)
 
 export function CreateCampaignPage() {
   const program = useProgram()
@@ -43,10 +57,14 @@ export function CreateCampaignPage() {
   const wallet = useWallet()
   const navigate = useNavigate()
   const now = useChainClock()
+  const verification = useVerification()
 
   const [visibility, setVisibility] = useState<'private' | 'public'>('private')
   const [tags, setTags] = useState<Tag[]>([])
   const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [imageUrl, setImageUrl] = useState('')
+  const [imageFailed, setImageFailed] = useState(false)
   const [goal, setGoal] = useState('1')
   const [preset, setPreset] = useState<number>(PRESETS[0].seconds)
   const [customMinutes, setCustomMinutes] = useState('30')
@@ -56,7 +74,13 @@ export function CreateCampaignPage() {
   const [formError, setFormError] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
 
-  const titleBytes = new TextEncoder().encode(title).length
+  // Public campaigns need a verified organizer; the program enforces it too.
+  const needsVerification = visibility === 'public' && verification.status !== 'verified'
+
+  const titleBytes = byteLength(title)
+  const descriptionBytes = byteLength(description.trim())
+  const trimmedImageUrl = imageUrl.trim()
+  const imageUrlValid = isAllowedImageUrl(trimmedImageUrl) && byteLength(trimmedImageUrl) <= MAX_IMAGE_URL_BYTES
   const connectedKey = wallet.publicKey?.toBase58() ?? ''
 
   /** The address that will actually be written, or null while it is not a valid key. */
@@ -79,10 +103,14 @@ export function CreateCampaignPage() {
         d.recipientKey,
         d.invite?.publicKey ?? null,
         d.tags,
+        d.description,
+        d.imageUrl,
       )
       .accountsPartial({
         organizer,
         campaign: d.campaign,
+        // Only a public campaign needs it; the seeds bind it to this organizer.
+        verification: d.invite ? null : verificationPda(organizer),
         systemProgram: SystemProgram.programId,
       })
       .transaction()
@@ -94,6 +122,10 @@ export function CreateCampaignPage() {
 
     if (!wallet.publicKey || !wallet.signTransaction) {
       setFormError('Connect a wallet first.')
+      return
+    }
+    if (needsVerification) {
+      setFormError('Verify your identity before opening a public campaign.')
       return
     }
 
@@ -111,6 +143,14 @@ export function CreateCampaignPage() {
     }
     if (titleBytes > MAX_TITLE_BYTES) {
       setFormError(`The name is ${titleBytes} bytes; the program allows ${MAX_TITLE_BYTES}.`)
+      return
+    }
+    if (descriptionBytes > MAX_DESCRIPTION_BYTES) {
+      setFormError(`The description is ${descriptionBytes} bytes; the program allows ${MAX_DESCRIPTION_BYTES}.`)
+      return
+    }
+    if (!imageUrlValid) {
+      setFormError(`The photo link must start with https:// and be at most ${MAX_IMAGE_URL_BYTES} bytes.`)
       return
     }
 
@@ -141,6 +181,8 @@ export function CreateCampaignPage() {
       // on chain; the secret half becomes the share link.
       invite: visibility === 'private' ? Keypair.generate() : null,
       tags: encodeTags(tags),
+      description: description.trim(),
+      imageUrl: trimmedImageUrl,
     }
 
     setBusy(true)
@@ -171,6 +213,9 @@ export function CreateCampaignPage() {
             'The name, goal, deadline, recipient, tags and who can join can never be changed after this, not by you and not by us.',
             `Goal: ${formatSol(goalLamports)}. The deadline is counted from the moment you confirm.`,
             'Creating the campaign moves none of your money apart from the deposit and the fee.',
+            ...(next.imageUrl
+              ? ['Only the photo link is fixed. Whoever hosts the image could still change or remove it.']
+              : []),
           ],
           confirmLabel: 'Confirm and create campaign',
         },
@@ -265,6 +310,17 @@ export function CreateCampaignPage() {
           </button>
         </div>
 
+        {needsVerification && (
+          <div className="notice notice-blocked">
+            <strong>Public campaigns need a verified identity.</strong>
+            <p>
+              Crowdfunding takes money from strangers, so organizers must verify who they are first.
+              Private campaigns for friends do not need this.
+            </p>
+            <Link to="/verify">Verify your identity →</Link>
+          </div>
+        )}
+
         <label>
           <span>What is it for?</span>
           <input
@@ -277,6 +333,56 @@ export function CreateCampaignPage() {
             {titleBytes}/{MAX_TITLE_BYTES} characters
           </small>
         </label>
+
+        <label>
+          <span>Tell people what it is for</span>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={5}
+            placeholder={
+              visibility === 'private'
+                ? 'Shared deposit for the campervan and the first two nights.'
+                : 'What the money pays for, who it helps, and why it matters.'
+            }
+          />
+          <small className={descriptionBytes > MAX_DESCRIPTION_BYTES ? 'warn' : ''}>
+            Optional. {descriptionBytes}/{MAX_DESCRIPTION_BYTES} bytes — letters like ą or ł count
+            as two.
+          </small>
+        </label>
+
+        <label>
+          <span>Photo link</span>
+          <input
+            value={imageUrl}
+            onChange={(e) => {
+              setImageUrl(e.target.value)
+              setImageFailed(false)
+            }}
+            placeholder="https://…/photo.jpg"
+            inputMode="url"
+            spellCheck={false}
+          />
+          <small className={imageUrlValid ? '' : 'warn'}>
+            Optional. A link to an image hosted anywhere, starting with https://. Only the link is
+            saved on chain.
+          </small>
+        </label>
+        {trimmedImageUrl && imageUrlValid && (
+          <figure className="photo-preview">
+            {imageFailed ? (
+              <p className="notice notice-error">This link does not open as an image.</p>
+            ) : (
+              <img
+                src={trimmedImageUrl}
+                alt="Preview of the campaign photo"
+                referrerPolicy="no-referrer"
+                onError={() => setImageFailed(true)}
+              />
+            )}
+          </figure>
+        )}
 
         <fieldset>
           <legend>Tags — pick up to {MAX_TAGS}</legend>
@@ -385,7 +491,7 @@ export function CreateCampaignPage() {
             onBack={() => setDraft(null)}
           />
         ) : (
-          <button type="submit" className="button button-primary" disabled={busy}>
+          <button type="submit" className="button button-primary" disabled={busy || needsVerification}>
             {busy ? 'Preparing…' : 'Review and create'}
           </button>
         )}

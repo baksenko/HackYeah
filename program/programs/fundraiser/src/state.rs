@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::constants::{MAX_NICKNAME_LEN, MAX_TITLE_LEN};
+use crate::constants::{MAX_DESCRIPTION_LEN, MAX_IMAGE_URL_LEN, MAX_NICKNAME_LEN, MAX_TITLE_LEN};
 
 /// One fundraiser. This account is program-owned and *is* the escrow: the
 /// contributed lamports live here, so no human key can move them.
@@ -42,6 +42,13 @@ pub struct Campaign {
     /// each bit means lives in the app (`app/src/lib/tags.ts`); the program
     /// only stores them, as plain descriptive metadata, never as a rule.
     pub tags: u32,
+    /// What the money is for, in the organizer's words. Fixed at creation.
+    #[max_len(MAX_DESCRIPTION_LEN)]
+    pub description: String,
+    /// An `https://` link to a photo hosted elsewhere, or empty. Only the link
+    /// is fixed on chain -- whoever hosts the image could still change it.
+    #[max_len(MAX_IMAGE_URL_LEN)]
+    pub image_url: String,
     pub bump: u8,
 }
 
@@ -60,5 +67,15 @@ pub struct Contribution {
     /// Chosen by the contributor, per campaign; empty means "show my address".
     #[max_len(MAX_NICKNAME_LEN)]
     pub nickname: String,
+    pub bump: u8,
+}
+
+/// Proof that `KYC_VERIFIER` checked this wallet's owner. Required to open a
+/// public campaign. Holds no personal data: only who was verified and when.
+#[account]
+#[derive(InitSpace)]
+pub struct Verification {
+    pub wallet: Pubkey,
+    pub verified_at: i64,
     pub bump: u8,
 }

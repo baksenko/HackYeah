@@ -7,6 +7,7 @@ import { CampaignsPage } from './pages/CampaignsPage'
 import { CreateCampaignPage } from './pages/CreateCampaignPage'
 import { HomePage } from './pages/HomePage'
 import { LeaderboardPage } from './pages/LeaderboardPage'
+import { VerifyPage } from './pages/VerifyPage'
 import { PROGRAM_ID } from './lib/program'
 import { CLUSTER_LABEL, explorerAddress } from './lib/cluster'
 
@@ -43,6 +44,7 @@ export function App() {
           <Route path="/campaigns" element={<CampaignsPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/new" element={<CreateCampaignPage />} />
+          <Route path="/verify" element={<VerifyPage />} />
           <Route path="/c/:address" element={<CampaignPage />} />
           <Route path="*" element={<p className="empty">Nothing here.</p>} />
         </Routes>

@@ -236,6 +236,39 @@ export type Fundraiser = {
           }
         },
         {
+          "name": "verification",
+          "docs": [
+            "The organizer's identity verification. Required for a public campaign;",
+            "the seeds tie it to this organizer, so nobody can borrow another's."
+          ],
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  101,
+                  114,
+                  105,
+                  102,
+                  105,
+                  99,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "organizer"
+              }
+            ]
+          }
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -270,6 +303,14 @@ export type Fundraiser = {
         {
           "name": "tags",
           "type": "u32"
+        },
+        {
+          "name": "description",
+          "type": "string"
+        },
+        {
+          "name": "imageUrl",
+          "type": "string"
         }
       ]
     },
@@ -373,6 +414,75 @@ export type Fundraiser = {
       "args": []
     },
     {
+      "name": "verifyIdentity",
+      "docs": [
+        "Mark a wallet as identity-verified, which unlocks public campaigns.",
+        "Signers: the wallet (pays rent) and `KYC_VERIFIER`."
+      ],
+      "discriminator": [
+        177,
+        162,
+        9,
+        111,
+        44,
+        84,
+        80,
+        21
+      ],
+      "accounts": [
+        {
+          "name": "wallet",
+          "docs": [
+            "The wallet being verified. Signs to accept the record and pays its rent."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "verifier",
+          "docs": [
+            "Must be `KYC_VERIFIER`. Its signature is the verification."
+          ],
+          "signer": true,
+          "address": "6heuxcXmpLasM5dYeoFFFAXnhGLKLZNG4mPGFMZfqX3z"
+        },
+        {
+          "name": "verification",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  101,
+                  114,
+                  105,
+                  102,
+                  105,
+                  99,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "withdraw",
       "docs": [
         "Take the pot. Signer: the recipient only, after a successful deadline."
@@ -458,6 +568,19 @@ export type Fundraiser = {
         167,
         242,
         212
+      ]
+    },
+    {
+      "name": "verification",
+      "discriminator": [
+        230,
+        33,
+        140,
+        88,
+        132,
+        240,
+        116,
+        178
       ]
     }
   ],
@@ -546,6 +669,31 @@ export type Fundraiser = {
       "code": 6016,
       "name": "tooManyTags",
       "msg": "A campaign can have at most 5 tags"
+    },
+    {
+      "code": 6017,
+      "name": "kycRequired",
+      "msg": "Opening a public campaign requires a verified identity"
+    },
+    {
+      "code": 6018,
+      "name": "notVerifier",
+      "msg": "Only the KYC verifier can verify an identity"
+    },
+    {
+      "code": 6019,
+      "name": "descriptionTooLong",
+      "msg": "Description must be at most 500 bytes"
+    },
+    {
+      "code": 6020,
+      "name": "imageUrlTooLong",
+      "msg": "Image link must be at most 200 bytes"
+    },
+    {
+      "code": 6021,
+      "name": "invalidImageUrl",
+      "msg": "Image link must be empty or start with https://"
     }
   ],
   "types": [
@@ -650,6 +798,21 @@ export type Fundraiser = {
             "type": "u32"
           },
           {
+            "name": "description",
+            "docs": [
+              "What the money is for, in the organizer's words. Fixed at creation."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "imageUrl",
+            "docs": [
+              "An `https://` link to a photo hosted elsewhere, or empty. Only the link",
+              "is fixed on chain -- whoever hosts the image could still change it."
+            ],
+            "type": "string"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -696,6 +859,30 @@ export type Fundraiser = {
           }
         ]
       }
+    },
+    {
+      "name": "verification",
+      "docs": [
+        "Proof that `KYC_VERIFIER` checked this wallet's owner. Required to open a",
+        "public campaign. Holds no personal data: only who was verified and when."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "verifiedAt",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
     }
   ],
   "constants": [
@@ -714,6 +901,28 @@ export type Fundraiser = {
       ],
       "type": "bytes",
       "value": "[99, 111, 110, 116, 114, 105, 98, 117, 116, 105, 111, 110]"
+    },
+    {
+      "name": "kycVerifier",
+      "docs": [
+        "The only key allowed to mark a wallet as identity-verified.",
+        "",
+        "DEMO ONLY: this is derived from the public seed",
+        "sha256(\"chip-in:demo-kyc-verifier:v1\"), so anyone can act as this",
+        "verifier. The on-chain check is real; the identity check behind it is a",
+        "mock. For production, replace this with the key of a real KYC provider",
+        "that signs only after checking documents on its own server."
+      ],
+      "type": "pubkey",
+      "value": "6heuxcXmpLasM5dYeoFFFAXnhGLKLZNG4mPGFMZfqX3z"
+    },
+    {
+      "name": "verificationSeed",
+      "docs": [
+        "PDA seed prefix for `Verification` accounts."
+      ],
+      "type": "bytes",
+      "value": "[118, 101, 114, 105, 102, 105, 99, 97, 116, 105, 111, 110]"
     }
   ]
 };

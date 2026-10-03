@@ -2,10 +2,17 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
 import { assert } from "chai";
+import { createHash } from "crypto";
 import { Fundraiser } from "../target/types/fundraiser";
 
 const CAMPAIGN_SEED = Buffer.from("campaign");
 const CONTRIBUTION_SEED = Buffer.from("contribution");
+const VERIFICATION_SEED = Buffer.from("verification");
+
+/** The demo KYC verifier: derived from a public seed, see constants.rs. */
+const DEMO_VERIFIER = Keypair.fromSeed(
+  createHash("sha256").update("chip-in:demo-kyc-verifier:v1").digest()
+);
 
 /** Deadlines in these tests are a few seconds out, so the suite really waits. */
 const DEADLINE_SECS = 8;
@@ -33,6 +40,25 @@ describe("fundraiser", () => {
       program.programId
     )[0];
 
+  const verificationPda = (wallet: PublicKey) =>
+    PublicKey.findProgramAddressSync([VERIFICATION_SEED, wallet.toBuffer()], program.programId)[0];
+
+  /** Wallets already verified in this run, so each is verified only once. */
+  const verified = new Set<string>();
+
+  function verifyIdentity(wallet: Keypair, verifier: Keypair = DEMO_VERIFIER) {
+    return program.methods
+      .verifyIdentity()
+      .accountsPartial({
+        wallet: wallet.publicKey,
+        verifier: verifier.publicKey,
+        verification: verificationPda(wallet.publicKey),
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([wallet, verifier])
+      .rpc();
+  }
+
   /** A funded wallet on the local validator. */
   async function wallet(sol = 10): Promise<Keypair> {
     const kp = Keypair.generate();
@@ -57,7 +83,22 @@ describe("fundraiser", () => {
     /** Makes the campaign private, gated on this key. */
     invite?: PublicKey;
     tags?: number;
+    description?: string;
+    imageUrl?: string;
+    /**
+     * Whose verification to pass. Defaults to the organizer's own for a
+     * public campaign (verifying them first if needed) and none for a private
+     * one; `null` passes none.
+     */
+    verificationOf?: PublicKey | null;
   }) {
+    const isPublic = !opts.invite;
+    if (isPublic && opts.verificationOf === undefined && !verified.has(opts.organizer.publicKey.toBase58())) {
+      await verifyIdentity(opts.organizer);
+      verified.add(opts.organizer.publicKey.toBase58());
+    }
+    const verificationOf =
+      opts.verificationOf === undefined ? (isPublic ? opts.organizer.publicKey : null) : opts.verificationOf;
     const id = freshId();
     const campaign = campaignPda(opts.organizer.publicKey, id);
     const deadline = (await chainNow()) + (opts.secondsFromNow ?? DEADLINE_SECS);
@@ -69,11 +110,14 @@ describe("fundraiser", () => {
         new anchor.BN(deadline),
         opts.recipient ?? opts.organizer.publicKey,
         opts.invite ?? null,
-        opts.tags ?? 0
+        opts.tags ?? 0,
+        opts.description ?? "",
+        opts.imageUrl ?? ""
       )
       .accountsPartial({
         organizer: opts.organizer.publicKey,
         campaign,
+        verification: verificationOf ? verificationPda(verificationOf) : null,
         systemProgram: SystemProgram.programId,
       })
       .signers([opts.organizer])
@@ -333,6 +377,89 @@ describe("fundraiser", () => {
     await expectError(
       createCampaign({ organizer, goalSol: 1, secondsFromNow: 120, tags: 0b111111 }),
       "TooManyTags"
+    );
+  });
+
+  it("public campaign: rejects an organizer without a verified identity", async () => {
+    const organizer = await wallet();
+    await expectError(createCampaign({ organizer, goalSol: 1, verificationOf: null }), "KycRequired");
+  });
+
+  it("rejects a verification signed by anyone but the KYC verifier", async () => {
+    const someone = await wallet();
+    const fakeVerifier = Keypair.generate();
+    await expectError(verifyIdentity(someone, fakeVerifier), "NotVerifier");
+  });
+
+  it("public campaign: rejects borrowing another wallet's verification", async () => {
+    const verifiedOne = await wallet();
+    await verifyIdentity(verifiedOne);
+    const organizer = await wallet();
+    await expectError(
+      createCampaign({ organizer, goalSol: 1, verificationOf: verifiedOne.publicKey }),
+      "ConstraintSeeds"
+    );
+  });
+
+  it("verified organizer can open a public campaign; private ones need no verification", async () => {
+    const organizer = await wallet();
+    await verifyIdentity(organizer);
+    const record = await program.account.verification.fetch(verificationPda(organizer.publicKey));
+    assert.ok(record.wallet.equals(organizer.publicKey));
+    const { campaign } = await createCampaign({ organizer, goalSol: 1, verificationOf: organizer.publicKey });
+    assert.equal((await program.account.campaign.fetch(campaign)).invite, null);
+
+    const friend = await wallet();
+    const invite = Keypair.generate();
+    const priv = await createCampaign({ organizer: friend, goalSol: 1, invite: invite.publicKey });
+    assert.ok((await program.account.campaign.fetch(priv.campaign)).invite!.equals(invite.publicKey));
+  });
+
+  it("stores a description and an image link, fixed at creation", async () => {
+    const organizer = await wallet();
+    const description =
+      "Swings and a sandpit for the kids on our street.\nEvery zloty goes to the council's playground fund.";
+    const imageUrl = "https://example.org/playground.jpg";
+    const { campaign } = await createCampaign({ organizer, goalSol: 1, description, imageUrl });
+    const state = await program.account.campaign.fetch(campaign);
+    assert.equal(state.description, description);
+    assert.equal(state.imageUrl, imageUrl);
+  });
+
+  it("fits a maximum-length title, description and link in one transaction", async () => {
+    const organizer = await wallet();
+    const imageUrl = "https://example.org/" + "a".repeat(200 - "https://example.org/".length);
+    const { campaign } = await createCampaign({
+      organizer,
+      goalSol: 1,
+      title: "t".repeat(64),
+      description: "d".repeat(500),
+      imageUrl,
+      tags: 0b11111,
+    });
+    const state = await program.account.campaign.fetch(campaign);
+    assert.equal(state.description.length, 500);
+    assert.equal(state.imageUrl.length, 200);
+  });
+
+  it("rejects a description over 500 bytes", async () => {
+    const organizer = await wallet();
+    // 251 two-byte characters = 502 bytes: the limit counts bytes, not letters.
+    await expectError(
+      createCampaign({ organizer, goalSol: 1, description: "ą".repeat(251) }),
+      "DescriptionTooLong"
+    );
+  });
+
+  it("rejects an image link that is not https", async () => {
+    const organizer = await wallet();
+    await expectError(
+      createCampaign({ organizer, goalSol: 1, imageUrl: "http://example.org/cat.jpg" }),
+      "InvalidImageUrl"
+    );
+    await expectError(
+      createCampaign({ organizer, goalSol: 1, imageUrl: "javascript:alert(1)" }),
+      "InvalidImageUrl"
     );
   });
 });

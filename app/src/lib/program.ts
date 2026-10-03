@@ -11,6 +11,8 @@ export const PROGRAM_ID = new PublicKey(idlJson.address)
 export const CAMPAIGN_SEED = Buffer.from('campaign')
 export const CONTRIBUTION_SEED = Buffer.from('contribution')
 export const MAX_TITLE_BYTES = 64
+export const MAX_DESCRIPTION_BYTES = 500
+export const MAX_IMAGE_URL_BYTES = 200
 
 export type FundraiserProgram = Program<Fundraiser>
 
