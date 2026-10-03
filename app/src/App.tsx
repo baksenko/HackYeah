@@ -1,6 +1,7 @@
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { Link, Route, Routes } from 'react-router-dom'
 
+import { WalletBalance } from './components/WalletBalance'
 import { CampaignPage } from './pages/CampaignPage'
 import { CreateCampaignPage } from './pages/CreateCampaignPage'
 import { HomePage } from './pages/HomePage'
@@ -19,6 +20,8 @@ export function App() {
           <WalletMultiButton />
         </div>
       </header>
+
+      <WalletBalance />
 
       <main>
         <Routes>

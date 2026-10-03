@@ -14,6 +14,9 @@ const PLAIN_LANGUAGE: Record<string, string> = {
   NotRecipient: 'Only the recipient chosen when this campaign was created can withdraw.',
   AlreadyWithdrawn: 'The money has already been paid out.',
   AccountNotInitialized: 'There is no contribution left to refund — it was already paid back.',
+  WalletHasNoSol:
+    'Your wallet has no SOL on this network, so it cannot even pay the transaction fee. Use “Get test SOL” at the top of the page, and check your wallet is set to the same network as this app.',
+  NotEnoughSol: 'Your wallet does not hold enough SOL for this. Use “Get test SOL” at the top of the page.',
 }
 
 export type ProgramFailure = {
@@ -71,6 +74,16 @@ function findErrorName(input: unknown, logs?: string[] | null): string | null {
   // 4. Anchor's own constraint errors, which have no entry in our IDL.
   if (/AccountNotInitialized|account to be already initialized/i.test(haystack)) {
     return 'AccountNotInitialized'
+  }
+
+  // 5. Bank-level rejections that happen before the program ever runs, so they
+  //    carry no program logs at all. "No record of a prior credit" is how the
+  //    runtime says the fee payer has never held any SOL on this cluster.
+  if (/no record of a prior credit|InsufficientFundsForFee|Insufficient funds for fee/i.test(haystack)) {
+    return 'WalletHasNoSol'
+  }
+  if (/insufficient lamports|Insufficient Funds/i.test(haystack)) {
+    return 'NotEnoughSol'
   }
   return null
 }

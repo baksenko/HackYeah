@@ -174,3 +174,13 @@ code { background: #f1f3f5; padding: 1px 5px; border-radius: 4px; font-size: 13p
 .footer p { color: var(--ink-soft); font-size: 13px; margin: 0; }
 
 .wallet-adapter-button-trigger { background: var(--accent) !important; }
+
+/* ------------------------------------------------------- wallet balance bar */
+.balance {
+  margin: 0 0 18px; padding: 10px 14px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius);
+}
+.balance-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.balance-amount { font-weight: 600; font-variant-numeric: tabular-nums; }
+.balance-low { color: var(--bad); }
+.balance-warning { margin: 8px 0 0; font-size: 13px; color: var(--ink-soft); }
