@@ -1,0 +1,643 @@
+/**
+ * Program IDL in camelCase format in order to be used in JS/TS.
+ *
+ * Note that this is only a type helper and is not the actual IDL. The original
+ * IDL can be found at `target/idl/fundraiser.json`.
+ */
+export type Fundraiser = {
+  "address": "DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7",
+  "metadata": {
+    "name": "fundraiser",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Trustless group fundraiser: goal reached -> only the recipient withdraws; goal missed -> every contributor reclaims their exact contribution."
+  },
+  "instructions": [
+    {
+      "name": "closeCampaign",
+      "docs": [
+        "Reclaim the rent deposit once everything is settled. Signer: the organizer."
+      ],
+      "discriminator": [
+        65,
+        49,
+        110,
+        7,
+        63,
+        238,
+        206,
+        77
+      ],
+      "accounts": [
+        {
+          "name": "organizer",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "campaign"
+          ]
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.organizer",
+                "account": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "campaign.campaignId",
+                "account": "campaign"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "contribute",
+      "docs": [
+        "Put SOL in. Signer: anyone, while the campaign is still open."
+      ],
+      "discriminator": [
+        82,
+        33,
+        68,
+        131,
+        32,
+        0,
+        205,
+        95
+      ],
+      "accounts": [
+        {
+          "name": "contributor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.organizer",
+                "account": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "campaign.campaignId",
+                "account": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "contribution",
+          "docs": [
+            "Created on the contributor's first contribution, topped up afterwards."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  105,
+                  98,
+                  117,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "contributor"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "createCampaign",
+      "docs": [
+        "Open a campaign. Signer: the organizer, who pays rent and nothing else."
+      ],
+      "discriminator": [
+        111,
+        131,
+        187,
+        98,
+        160,
+        193,
+        114,
+        244
+      ],
+      "accounts": [
+        {
+          "name": "organizer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "organizer"
+              },
+              {
+                "kind": "arg",
+                "path": "campaignId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "campaignId",
+          "type": "u64"
+        },
+        {
+          "name": "title",
+          "type": "string"
+        },
+        {
+          "name": "goal",
+          "type": "u64"
+        },
+        {
+          "name": "deadline",
+          "type": "i64"
+        },
+        {
+          "name": "recipient",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "refund",
+      "docs": [
+        "Take your own money back. Signer: a contributor, after a failed deadline."
+      ],
+      "discriminator": [
+        2,
+        96,
+        183,
+        251,
+        63,
+        208,
+        46,
+        46
+      ],
+      "accounts": [
+        {
+          "name": "contributor",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "contribution"
+          ]
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.organizer",
+                "account": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "campaign.campaignId",
+                "account": "campaign"
+              }
+            ]
+          },
+          "relations": [
+            "contribution"
+          ]
+        },
+        {
+          "name": "contribution",
+          "docs": [
+            "`close = contributor` hands the rent back and wipes the receipt. That",
+            "is what makes a second refund impossible: the account the instruction",
+            "needs no longer exists."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  105,
+                  98,
+                  117,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "contributor"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "withdraw",
+      "docs": [
+        "Take the pot. Signer: the recipient only, after a successful deadline."
+      ],
+      "discriminator": [
+        183,
+        18,
+        70,
+        156,
+        148,
+        109,
+        161,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "recipient",
+          "docs": [
+            "Must be the `recipient` recorded at creation. The constraint below is",
+            "the whole guarantee: no other key can sign this instruction into",
+            "success, whatever a frontend chooses to offer."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.organizer",
+                "account": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "campaign.campaignId",
+                "account": "campaign"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "campaign",
+      "discriminator": [
+        50,
+        40,
+        49,
+        11,
+        157,
+        220,
+        229,
+        192
+      ]
+    },
+    {
+      "name": "contribution",
+      "discriminator": [
+        182,
+        187,
+        14,
+        111,
+        72,
+        167,
+        242,
+        212
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "deadlineNotReached",
+      "msg": "The deadline has not been reached yet"
+    },
+    {
+      "code": 6001,
+      "name": "deadlinePassed",
+      "msg": "The deadline has already passed"
+    },
+    {
+      "code": 6002,
+      "name": "goalNotReached",
+      "msg": "The campaign did not reach its goal"
+    },
+    {
+      "code": 6003,
+      "name": "goalReached",
+      "msg": "The campaign reached its goal, so contributions cannot be refunded"
+    },
+    {
+      "code": 6004,
+      "name": "notRecipient",
+      "msg": "Only the recipient set at creation can withdraw"
+    },
+    {
+      "code": 6005,
+      "name": "alreadyWithdrawn",
+      "msg": "The funds have already been withdrawn"
+    },
+    {
+      "code": 6006,
+      "name": "invalidAmount",
+      "msg": "Amount must be greater than zero"
+    },
+    {
+      "code": 6007,
+      "name": "titleTooLong",
+      "msg": "Title must be at most 64 bytes"
+    },
+    {
+      "code": 6008,
+      "name": "invalidGoal",
+      "msg": "Goal must be greater than zero"
+    },
+    {
+      "code": 6009,
+      "name": "invalidDeadline",
+      "msg": "Deadline must be in the future"
+    },
+    {
+      "code": 6010,
+      "name": "mathOverflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6011,
+      "name": "insufficientCampaignBalance",
+      "msg": "Campaign balance would drop below its rent-exempt reserve"
+    },
+    {
+      "code": 6012,
+      "name": "campaignNotSettled",
+      "msg": "Campaign can only be closed after a withdrawal or after every contribution was refunded"
+    }
+  ],
+  "types": [
+    {
+      "name": "campaign",
+      "docs": [
+        "One fundraiser. This account is program-owned and *is* the escrow: the",
+        "contributed lamports live here, so no human key can move them.",
+        "",
+        "Invariant on the lamport balance:",
+        "balance == rent_exempt_reserve + (total_raised - total_refunded)",
+        "or, after a successful withdrawal, just `rent_exempt_reserve`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "organizer",
+            "docs": [
+              "Created the campaign and pays its rent. Holds no power over the funds."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "docs": [
+              "The only key that may withdraw on success. Set at creation, never changed."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "campaignId",
+            "docs": [
+              "Organizer-chosen id, lets one organizer run many campaigns."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "title",
+            "docs": [
+              "Human-readable name, at most `MAX_TITLE_LEN` bytes."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "goal",
+            "docs": [
+              "Target in lamports. Reaching it is what unlocks `withdraw`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "deadline",
+            "docs": [
+              "Unix timestamp. Before it: only `contribute`. After it: only `withdraw` or `refund`."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "totalRaised",
+            "docs": [
+              "Sum of every contribution ever made."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "totalRefunded",
+            "docs": [
+              "Sum of every refund ever paid out."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "withdrawn",
+            "docs": [
+              "Set once by `withdraw`; makes a second withdrawal impossible."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "contribution",
+      "docs": [
+        "One contributor's running total for one campaign. Its existence is the",
+        "receipt that entitles them to a refund if the goal is missed; `refund`",
+        "closes it, which is what makes a double refund impossible."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "docs": [
+              "First field after the 8-byte discriminator, so the frontend can list a",
+              "campaign's contributors with a single memcmp filter at offset 8."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "contributor",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "campaignSeed",
+      "docs": [
+        "PDA seed prefix for `Campaign` accounts."
+      ],
+      "type": "bytes",
+      "value": "[99, 97, 109, 112, 97, 105, 103, 110]"
+    },
+    {
+      "name": "contributionSeed",
+      "docs": [
+        "PDA seed prefix for `Contribution` accounts."
+      ],
+      "type": "bytes",
+      "value": "[99, 111, 110, 116, 114, 105, 98, 117, 116, 105, 111, 110]"
+    }
+  ]
+};

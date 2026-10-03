@@ -1,0 +1,210 @@
+import { BN } from '@coral-xyz/anchor'
+import { useConnection, useWallet } from '@solana/wallet-adapter-react'
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
+import { PublicKey, SystemProgram } from '@solana/web3.js'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+
+import { TxResult } from '../components/TxResult'
+import { MAX_TITLE_BYTES, campaignPda, useProgram } from '../lib/program'
+import { sendTransaction, type TxOutcome } from '../lib/send'
+import { solToLamports } from '../lib/format'
+import { useChainClock } from '../lib/useChainClock'
+
+const PRESETS = [
+  { label: '2 minutes (demo)', seconds: 120 },
+  { label: '1 hour', seconds: 3600 },
+  { label: '1 day', seconds: 86_400 },
+  { label: '1 week', seconds: 604_800 },
+  { label: 'Custom…', seconds: 0 },
+] as const
+
+export function CreateCampaignPage() {
+  const program = useProgram()
+  const { connection } = useConnection()
+  const wallet = useWallet()
+  const navigate = useNavigate()
+  const now = useChainClock()
+
+  const [title, setTitle] = useState('')
+  const [goal, setGoal] = useState('1')
+  const [preset, setPreset] = useState<number>(PRESETS[0].seconds)
+  const [customMinutes, setCustomMinutes] = useState('30')
+  const [recipient, setRecipient] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [outcome, setOutcome] = useState<TxOutcome | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const titleBytes = new TextEncoder().encode(title).length
+  const connectedKey = wallet.publicKey?.toBase58() ?? ''
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    setFormError(null)
+    setOutcome(null)
+
+    if (!wallet.publicKey || !wallet.signTransaction) {
+      setFormError('Connect a wallet first.')
+      return
+    }
+
+    let goalLamports: BN
+    try {
+      goalLamports = solToLamports(goal)
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : 'Enter a valid goal.')
+      return
+    }
+
+    if (!title.trim()) {
+      setFormError('Give the campaign a name.')
+      return
+    }
+    if (titleBytes > MAX_TITLE_BYTES) {
+      setFormError(`The name is ${titleBytes} bytes; the program allows ${MAX_TITLE_BYTES}.`)
+      return
+    }
+
+    const seconds = preset === 0 ? Math.round(Number(customMinutes) * 60) : preset
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      setFormError('Choose a deadline in the future.')
+      return
+    }
+
+    let recipientKey: PublicKey
+    try {
+      recipientKey = recipient.trim() ? new PublicKey(recipient.trim()) : wallet.publicKey
+    } catch {
+      setFormError('That recipient address is not a valid Solana address.')
+      return
+    }
+
+    // A fresh id per campaign so one organizer can run many of them.
+    const campaignId = BigInt(Date.now())
+    const campaign = campaignPda(wallet.publicKey, campaignId)
+
+    setBusy(true)
+    try {
+      const transaction = await program.methods
+        .createCampaign(
+          new BN(campaignId.toString()),
+          title.trim(),
+          goalLamports,
+          new BN(now + seconds),
+          recipientKey,
+        )
+        .accountsPartial({
+          organizer: wallet.publicKey,
+          campaign,
+          systemProgram: SystemProgram.programId,
+        })
+        .transaction()
+
+      const result = await sendTransaction(
+        connection,
+        { publicKey: wallet.publicKey, signTransaction: wallet.signTransaction },
+        transaction,
+      )
+      setOutcome(result)
+      if (result.kind === 'success') {
+        navigate(`/c/${campaign.toBase58()}`)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!wallet.connected) {
+    return (
+      <section className="panel">
+        <h1>Create a campaign</h1>
+        <p>Connect a wallet to continue.</p>
+        <WalletMultiButton />
+      </section>
+    )
+  }
+
+  return (
+    <section className="panel">
+      <h1>Create a campaign</h1>
+      <p className="aside">
+        Everything you set here is written into the campaign once and can never be edited
+        afterwards — not by you, not by us.
+      </p>
+
+      <form onSubmit={submit} className="form">
+        <label>
+          <span>What is it for?</span>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Leaving gift for Anna"
+            maxLength={120}
+          />
+          <small className={titleBytes > MAX_TITLE_BYTES ? 'warn' : ''}>
+            {titleBytes}/{MAX_TITLE_BYTES} characters
+          </small>
+        </label>
+
+        <label>
+          <span>How much do you need, in SOL?</span>
+          <input
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            inputMode="decimal"
+            placeholder="1"
+          />
+          <small>If this much is not collected in time, everyone gets their money back.</small>
+        </label>
+
+        <fieldset>
+          <legend>How long is it open?</legend>
+          <div className="choices">
+            {PRESETS.map((option) => (
+              <label key={option.label} className="choice">
+                <input
+                  type="radio"
+                  name="deadline"
+                  checked={preset === option.seconds}
+                  onChange={() => setPreset(option.seconds)}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+          {preset === 0 && (
+            <label>
+              <span>Minutes from now</span>
+              <input
+                value={customMinutes}
+                onChange={(e) => setCustomMinutes(e.target.value)}
+                inputMode="numeric"
+              />
+            </label>
+          )}
+        </fieldset>
+
+        <label>
+          <span>Who receives the money if the goal is reached?</span>
+          <input
+            value={recipient}
+            onChange={(e) => setRecipient(e.target.value)}
+            placeholder={connectedKey}
+            spellCheck={false}
+          />
+          <small>
+            Leave it empty to use your own wallet. This address is fixed when the campaign is
+            created, so the money can never be sent anywhere else.
+          </small>
+        </label>
+
+        {formError && <p className="notice notice-error">{formError}</p>}
+        {outcome && <TxResult outcome={outcome} onDismiss={() => setOutcome(null)} />}
+
+        <button type="submit" className="button button-primary" disabled={busy}>
+          {busy ? 'Creating…' : 'Create campaign'}
+        </button>
+      </form>
+    </section>
+  )
+}
