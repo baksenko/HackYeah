@@ -31,8 +31,10 @@ pub fn handle_create_campaign(
     deadline: i64,
     recipient: Pubkey,
     invite: Option<Pubkey>,
+    tags: u32,
 ) -> Result<()> {
     require!(title.len() <= MAX_TITLE_LEN, FundraiserError::TitleTooLong);
+    require!(tags.count_ones() <= MAX_TAGS, FundraiserError::TooManyTags);
     require!(goal > 0, FundraiserError::InvalidGoal);
 
     // Any future deadline is legal, including one two minutes out, so both
@@ -51,6 +53,7 @@ pub fn handle_create_campaign(
     campaign.total_refunded = 0;
     campaign.withdrawn = false;
     campaign.invite = invite;
+    campaign.tags = tags;
     campaign.bump = ctx.bumps.campaign;
 
     msg!(

@@ -37,6 +37,11 @@ pub struct Campaign {
     /// This restricts who can *contribute*. It does not hide the campaign:
     /// every account on Solana is readable by anyone.
     pub invite: Option<Pubkey>,
+    /// Up to `MAX_TAGS` labels ("Trip", "Medical", …) as a bitmask, so the
+    /// app can filter and search without a database. The catalogue of what
+    /// each bit means lives in the app (`app/src/lib/tags.ts`); the program
+    /// only stores them, as plain descriptive metadata, never as a rule.
+    pub tags: u32,
     pub bump: u8,
 }
 

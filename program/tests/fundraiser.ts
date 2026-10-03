@@ -56,6 +56,7 @@ describe("fundraiser", () => {
     title?: string;
     /** Makes the campaign private, gated on this key. */
     invite?: PublicKey;
+    tags?: number;
   }) {
     const id = freshId();
     const campaign = campaignPda(opts.organizer.publicKey, id);
@@ -67,7 +68,8 @@ describe("fundraiser", () => {
         new anchor.BN(opts.goalSol * LAMPORTS_PER_SOL),
         new anchor.BN(deadline),
         opts.recipient ?? opts.organizer.publicKey,
-        opts.invite ?? null
+        opts.invite ?? null,
+        opts.tags ?? 0
       )
       .accountsPartial({
         organizer: opts.organizer.publicKey,
@@ -319,5 +321,18 @@ describe("fundraiser", () => {
     assert.equal(receipt.amount.toNumber(), 0.2 * LAMPORTS_PER_SOL);
 
     await expectError(contribute(campaign, bob, 0.1, { nickname: "x".repeat(33) }), "NicknameTooLong");
+  });
+
+  it("stores up to 5 tags and rejects a sixth", async () => {
+    const organizer = await wallet();
+    const tags = 0b10110; // three tags
+    const { campaign } = await createCampaign({ organizer, goalSol: 1, secondsFromNow: 120, tags });
+    const state = await program.account.campaign.fetch(campaign);
+    assert.equal(state.tags, tags);
+
+    await expectError(
+      createCampaign({ organizer, goalSol: 1, secondsFromNow: 120, tags: 0b111111 }),
+      "TooManyTags"
+    );
   });
 });

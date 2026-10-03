@@ -12,5 +12,8 @@ pub const CONTRIBUTION_SEED: &[u8] = b"contribution";
 /// `#[constant]` does not support `usize`.
 pub const MAX_TITLE_LEN: usize = 64;
 
+/// Maximum number of tags on one campaign.
+pub const MAX_TAGS: u32 = 5;
+
 /// Maximum contributor nickname length, in bytes.
 pub const MAX_NICKNAME_LEN: usize = 32;

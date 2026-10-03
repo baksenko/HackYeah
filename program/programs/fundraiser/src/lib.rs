@@ -33,6 +33,7 @@ pub mod fundraiser {
         deadline: i64,
         recipient: Pubkey,
         invite: Option<Pubkey>,
+        tags: u32,
     ) -> Result<()> {
         instructions::create_campaign::handle_create_campaign(
             ctx,
@@ -42,6 +43,7 @@ pub mod fundraiser {
             deadline,
             recipient,
             invite,
+            tags,
         )
     }
 

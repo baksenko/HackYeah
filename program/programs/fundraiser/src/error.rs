@@ -34,4 +34,6 @@ pub enum FundraiserError {
     InvalidInvite,
     #[msg("Nickname must be at most 32 bytes")]
     NicknameTooLong,
+    #[msg("A campaign can have at most 5 tags")]
+    TooManyTags,
 }
