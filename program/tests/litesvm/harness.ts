@@ -145,6 +145,12 @@ export function createHarness() {
       return AccountLayout.decode(Buffer.from(info.data)).amount;
     },
 
+    /** Events emitted by the last successful transaction, decoded with the IDL. */
+    events(): { name: string; data: any }[] {
+      const parser = new anchor.EventParser(program.programId, new anchor.BorshCoder(program.idl));
+      return [...parser.parseLogs(provider.lastLogs)];
+    },
+
     lamports: (address: PublicKey) => BigInt(svm.getBalance(addr(address)) ?? 0n),
     exists: (address: PublicKey) => readAccount(svm, address) !== null,
   };

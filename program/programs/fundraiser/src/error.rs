@@ -42,4 +42,14 @@ pub enum FundraiserError {
     ImageUrlTooLong,
     #[msg("Image link must be empty or start with https://")]
     InvalidImageUrl,
+    #[msg("This program only accepts the configured USDC mint")]
+    WrongMint,
+    #[msg("Only the organizer of this campaign can do this")]
+    NotOrganizer,
+    #[msg("The campaign is no longer taking changes")]
+    CampaignNotActive,
+    #[msg("The recipient is locked once anyone has contributed")]
+    RecipientLocked,
+    #[msg("The recipient must be a real address")]
+    InvalidRecipient,
 }

@@ -72,6 +72,8 @@ export class LiteSVMProvider implements anchor.Provider {
   readonly connection: Connection;
   readonly wallet: anchor.Wallet;
   readonly publicKey: PublicKey;
+  /** Logs of the last successful transaction, for reading emitted events. */
+  lastLogs: string[] = [];
 
   constructor(readonly svm: LiteSVM, payer: Keypair = Keypair.generate()) {
     this.wallet = new anchor.Wallet(payer);
@@ -118,6 +120,7 @@ export class LiteSVMProvider implements anchor.Provider {
         logs,
       });
     }
+    this.lastLogs = res.logs();
     return bs58.encode(res.signature());
   }
 }

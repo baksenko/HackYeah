@@ -4,8 +4,7 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "test": "ts-mocha -p ./tsconfig.json -t 1000000 'tests/litesvm/**/*.test.ts'",
-    "test:validator": "ts-mocha -p ./tsconfig.json -t 1000000 tests/fundraiser.ts"
+    "test": "ts-mocha -p ./tsconfig.json -t 1000000 'tests/litesvm/**/*.test.ts'"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1"

@@ -9,6 +9,7 @@
 
 pub mod constants;
 pub mod error;
+pub mod events;
 pub mod instructions;
 pub mod state;
 
@@ -16,6 +17,7 @@ use anchor_lang::prelude::*;
 
 pub use constants::*;
 pub use error::*;
+pub use events::*;
 pub use instructions::*;
 pub use state::*;
 
@@ -50,6 +52,11 @@ pub mod fundraiser {
             description,
             image_url,
         )
+    }
+
+    /// Fix the recipient before anyone has contributed. Signer: the organizer.
+    pub fn update_recipient(ctx: Context<UpdateRecipient>, new_recipient: Pubkey) -> Result<()> {
+        instructions::update_recipient::handle_update_recipient(ctx, new_recipient)
     }
 
     /// Put SOL in. Signer: anyone while open; for a private campaign, also

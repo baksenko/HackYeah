@@ -1,6 +1,10 @@
 use anchor_lang::prelude::*;
 
-use crate::{constants::*, error::FundraiserError, state::Campaign};
+use crate::{
+    constants::*,
+    error::FundraiserError,
+    state::{Campaign, CampaignStatus},
+};
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
@@ -26,7 +30,10 @@ pub fn handle_withdraw(ctx: Context<Withdraw>) -> Result<()> {
 
     {
         let campaign = &ctx.accounts.campaign;
-        require!(!campaign.withdrawn, FundraiserError::AlreadyWithdrawn);
+        require!(
+            campaign.status != CampaignStatus::Withdrawn,
+            FundraiserError::AlreadyWithdrawn
+        );
         // Checked before the goal, so an early attempt reports the honest
         // reason it failed: the deadline is not here yet.
         require!(
@@ -42,7 +49,7 @@ pub fn handle_withdraw(ctx: Context<Withdraw>) -> Result<()> {
     // On the success path no refund can have happened, so the payout is the
     // full amount raised.
     let amount = ctx.accounts.campaign.total_raised;
-    ctx.accounts.campaign.withdrawn = true;
+    ctx.accounts.campaign.status = CampaignStatus::Withdrawn;
 
     let campaign_ai = ctx.accounts.campaign.to_account_info();
     let recipient_ai = ctx.accounts.recipient.to_account_info();

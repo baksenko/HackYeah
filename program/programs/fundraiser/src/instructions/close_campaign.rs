@@ -1,6 +1,10 @@
 use anchor_lang::prelude::*;
 
-use crate::{constants::*, error::FundraiserError, state::Campaign};
+use crate::{
+    constants::*,
+    error::FundraiserError,
+    state::{Campaign, CampaignStatus},
+};
 
 #[derive(Accounts)]
 pub struct CloseCampaign<'info> {
@@ -24,7 +28,7 @@ pub fn handle_close_campaign(ctx: Context<CloseCampaign>) -> Result<()> {
     let campaign = &ctx.accounts.campaign;
     let now = Clock::get()?.unix_timestamp;
 
-    let paid_out = campaign.withdrawn;
+    let paid_out = campaign.status == CampaignStatus::Withdrawn;
     let fully_refunded = now >= campaign.deadline
         && campaign.total_raised < campaign.goal
         && campaign.total_refunded == campaign.total_raised;
