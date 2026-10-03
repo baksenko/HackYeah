@@ -28,6 +28,10 @@ pub struct Contribute<'info> {
     )]
     pub contribution: Account<'info, Contribution>,
 
+    /// Only for private campaigns: the invite key from the organizer's share
+    /// link, co-signing to prove the contributor actually holds that link.
+    pub invite: Option<Signer<'info>>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -35,8 +39,24 @@ pub struct Contribute<'info> {
 /// into the program-owned `Campaign` account, so from this moment on no
 /// private key -- including the organizer's -- can move them except through
 /// `withdraw` or `refund`.
-pub fn handle_contribute(ctx: Context<Contribute>, amount: u64) -> Result<()> {
+pub fn handle_contribute(ctx: Context<Contribute>, amount: u64, nickname: String) -> Result<()> {
     require!(amount > 0, FundraiserError::InvalidAmount);
+    require!(
+        nickname.len() <= MAX_NICKNAME_LEN,
+        FundraiserError::NicknameTooLong
+    );
+
+    // Private campaigns: no invite signature, no contribution. Checked here,
+    // in the program, so a modified frontend or a hand-built transaction
+    // cannot skip it.
+    if let Some(expected) = ctx.accounts.campaign.invite {
+        let invite = ctx
+            .accounts
+            .invite
+            .as_ref()
+            .ok_or(FundraiserError::InviteRequired)?;
+        require_keys_eq!(invite.key(), expected, FundraiserError::InvalidInvite);
+    }
 
     let now = Clock::get()?.unix_timestamp;
     require!(
@@ -71,6 +91,10 @@ pub fn handle_contribute(ctx: Context<Contribute>, amount: u64) -> Result<()> {
         .checked_add(amount)
         .ok_or(FundraiserError::MathOverflow)?;
     contribution.bump = ctx.bumps.contribution;
+    // Keep the previous nickname when a top-up does not supply a new one.
+    if !nickname.is_empty() {
+        contribution.nickname = nickname;
+    }
 
     msg!(
         "Contributed {} lamports; campaign total is now {}",

@@ -11,3 +11,6 @@ pub const CONTRIBUTION_SEED: &[u8] = b"contribution";
 /// Maximum campaign title length, in bytes. Not exported to the IDL because
 /// `#[constant]` does not support `usize`.
 pub const MAX_TITLE_LEN: usize = 64;
+
+/// Maximum contributor nickname length, in bytes.
+pub const MAX_NICKNAME_LEN: usize = 32;

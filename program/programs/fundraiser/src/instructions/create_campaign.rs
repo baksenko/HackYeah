@@ -30,6 +30,7 @@ pub fn handle_create_campaign(
     goal: u64,
     deadline: i64,
     recipient: Pubkey,
+    invite: Option<Pubkey>,
 ) -> Result<()> {
     require!(title.len() <= MAX_TITLE_LEN, FundraiserError::TitleTooLong);
     require!(goal > 0, FundraiserError::InvalidGoal);
@@ -49,13 +50,15 @@ pub fn handle_create_campaign(
     campaign.total_raised = 0;
     campaign.total_refunded = 0;
     campaign.withdrawn = false;
+    campaign.invite = invite;
     campaign.bump = ctx.bumps.campaign;
 
     msg!(
-        "Campaign created: goal {} lamports, deadline {}, recipient {}",
+        "Campaign created: goal {} lamports, deadline {}, recipient {}, {}",
         goal,
         deadline,
-        recipient
+        recipient,
+        if invite.is_some() { "private" } else { "public" }
     );
     Ok(())
 }

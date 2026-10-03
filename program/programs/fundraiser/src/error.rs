@@ -28,4 +28,10 @@ pub enum FundraiserError {
     InsufficientCampaignBalance,
     #[msg("Campaign can only be closed after a withdrawal or after every contribution was refunded")]
     CampaignNotSettled,
+    #[msg("This campaign is private: contributing requires the organizer's invite link")]
+    InviteRequired,
+    #[msg("This invite does not belong to this campaign")]
+    InvalidInvite,
+    #[msg("Nickname must be at most 32 bytes")]
+    NicknameTooLong,
 }

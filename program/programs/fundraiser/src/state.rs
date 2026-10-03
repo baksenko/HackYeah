@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::constants::MAX_TITLE_LEN;
+use crate::constants::{MAX_NICKNAME_LEN, MAX_TITLE_LEN};
 
 /// One fundraiser. This account is program-owned and *is* the escrow: the
 /// contributed lamports live here, so no human key can move them.
@@ -30,6 +30,13 @@ pub struct Campaign {
     pub total_refunded: u64,
     /// Set once by `withdraw`; makes a second withdrawal impossible.
     pub withdrawn: bool,
+    /// `Some` makes the campaign private: `contribute` then requires this key
+    /// to co-sign. Its secret travels only inside the organizer's share link,
+    /// so only people holding that link can join. `None` means public.
+    ///
+    /// This restricts who can *contribute*. It does not hide the campaign:
+    /// every account on Solana is readable by anyone.
+    pub invite: Option<Pubkey>,
     pub bump: u8,
 }
 
@@ -44,5 +51,9 @@ pub struct Contribution {
     pub campaign: Pubkey,
     pub contributor: Pubkey,
     pub amount: u64,
+    /// How this contributor wants to be shown to the group, e.g. "Kuba".
+    /// Chosen by the contributor, per campaign; empty means "show my address".
+    #[max_len(MAX_NICKNAME_LEN)]
+    pub nickname: String,
     pub bump: u8,
 }

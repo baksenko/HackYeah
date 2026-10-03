@@ -32,6 +32,7 @@ pub mod fundraiser {
         goal: u64,
         deadline: i64,
         recipient: Pubkey,
+        invite: Option<Pubkey>,
     ) -> Result<()> {
         instructions::create_campaign::handle_create_campaign(
             ctx,
@@ -40,12 +41,14 @@ pub mod fundraiser {
             goal,
             deadline,
             recipient,
+            invite,
         )
     }
 
-    /// Put SOL in. Signer: anyone, while the campaign is still open.
-    pub fn contribute(ctx: Context<Contribute>, amount: u64) -> Result<()> {
-        instructions::contribute::handle_contribute(ctx, amount)
+    /// Put SOL in. Signer: anyone while open; for a private campaign, also
+    /// the invite key from the share link.
+    pub fn contribute(ctx: Context<Contribute>, amount: u64, nickname: String) -> Result<()> {
+        instructions::contribute::handle_contribute(ctx, amount, nickname)
     }
 
     /// Take the pot. Signer: the recipient only, after a successful deadline.

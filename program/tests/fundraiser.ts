@@ -54,6 +54,8 @@ describe("fundraiser", () => {
     goalSol: number;
     secondsFromNow?: number;
     title?: string;
+    /** Makes the campaign private, gated on this key. */
+    invite?: PublicKey;
   }) {
     const id = freshId();
     const campaign = campaignPda(opts.organizer.publicKey, id);
@@ -64,9 +66,10 @@ describe("fundraiser", () => {
         opts.title ?? "Test campaign",
         new anchor.BN(opts.goalSol * LAMPORTS_PER_SOL),
         new anchor.BN(deadline),
-        opts.recipient ?? opts.organizer.publicKey
+        opts.recipient ?? opts.organizer.publicKey,
+        opts.invite ?? null
       )
-      .accounts({
+      .accountsPartial({
         organizer: opts.organizer.publicKey,
         campaign,
         systemProgram: SystemProgram.programId,
@@ -76,30 +79,36 @@ describe("fundraiser", () => {
     return { id, campaign, deadline };
   }
 
-  function contribute(campaign: PublicKey, contributor: Keypair, sol: number) {
+  function contribute(
+    campaign: PublicKey,
+    contributor: Keypair,
+    sol: number,
+    opts: { nickname?: string; invite?: Keypair } = {}
+  ) {
     return program.methods
-      .contribute(new anchor.BN(sol * LAMPORTS_PER_SOL))
-      .accounts({
+      .contribute(new anchor.BN(sol * LAMPORTS_PER_SOL), opts.nickname ?? "")
+      .accountsPartial({
         contributor: contributor.publicKey,
         campaign,
         contribution: contributionPda(campaign, contributor.publicKey),
+        invite: opts.invite?.publicKey ?? null,
         systemProgram: SystemProgram.programId,
       })
-      .signers([contributor])
+      .signers(opts.invite ? [contributor, opts.invite] : [contributor])
       .rpc();
   }
 
   const withdraw = (campaign: PublicKey, recipient: Keypair) =>
     program.methods
       .withdraw()
-      .accounts({ recipient: recipient.publicKey, campaign })
+      .accountsPartial({ recipient: recipient.publicKey, campaign })
       .signers([recipient])
       .rpc();
 
   const refund = (campaign: PublicKey, contributor: Keypair) =>
     program.methods
       .refund()
-      .accounts({
+      .accountsPartial({
         contributor: contributor.publicKey,
         campaign,
         contribution: contributionPda(campaign, contributor.publicKey),
@@ -253,5 +262,62 @@ describe("fundraiser", () => {
     await waitForDeadline(deadline);
 
     await expectError(contribute(campaign, bob, 0.5), "DeadlinePassed");
+  });
+
+  // ------------------------------------------------- private campaigns & names
+
+  it("private campaign: rejects a contribution without the invite", async () => {
+    const organizer = await wallet();
+    const stranger = await wallet();
+    const invite = Keypair.generate();
+    const { campaign } = await createCampaign({
+      organizer, goalSol: 1, secondsFromNow: 120, invite: invite.publicKey,
+    });
+
+    await expectError(contribute(campaign, stranger, 0.1), "InviteRequired");
+  });
+
+  it("private campaign: rejects an invite from a different campaign", async () => {
+    const organizer = await wallet();
+    const stranger = await wallet();
+    const invite = Keypair.generate();
+    const { campaign } = await createCampaign({
+      organizer, goalSol: 1, secondsFromNow: 120, invite: invite.publicKey,
+    });
+
+    await expectError(
+      contribute(campaign, stranger, 0.1, { invite: Keypair.generate() }),
+      "InvalidInvite"
+    );
+  });
+
+  it("private campaign: accepts a contribution from someone holding the invite", async () => {
+    const organizer = await wallet();
+    const friend = await wallet();
+    const invite = Keypair.generate();
+    const { campaign } = await createCampaign({
+      organizer, goalSol: 1, secondsFromNow: 120, invite: invite.publicKey,
+    });
+
+    await contribute(campaign, friend, 0.2, { invite, nickname: "Kuba" });
+    const receipt = await program.account.contribution.fetch(
+      contributionPda(campaign, friend.publicKey)
+    );
+    assert.equal(receipt.amount.toNumber(), 0.2 * LAMPORTS_PER_SOL);
+    assert.equal(receipt.nickname, "Kuba");
+  });
+
+  it("keeps a contributor's nickname on a top-up that does not give a new one", async () => {
+    const organizer = await wallet();
+    const bob = await wallet();
+    const { campaign } = await createCampaign({ organizer, goalSol: 5, secondsFromNow: 120 });
+
+    await contribute(campaign, bob, 0.1, { nickname: "Bob" });
+    await contribute(campaign, bob, 0.1);
+    const receipt = await program.account.contribution.fetch(contributionPda(campaign, bob.publicKey));
+    assert.equal(receipt.nickname, "Bob");
+    assert.equal(receipt.amount.toNumber(), 0.2 * LAMPORTS_PER_SOL);
+
+    await expectError(contribute(campaign, bob, 0.1, { nickname: "x".repeat(33) }), "NicknameTooLong");
   });
 });
