@@ -446,3 +446,10 @@ textarea { resize: vertical; line-height: 1.5; }
   display: block; max-width: 100%; max-height: 220px; object-fit: cover;
   border-radius: 12px; border: 1px solid var(--line);
 }
+
+/* .sol name shown in front of an address (Solana Name Service). */
+.sol-name {
+  display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px;
+  background: var(--violet-soft); color: var(--violet-deep); border: 1px solid #dccfff;
+  font-size: 13px; font-weight: 700; cursor: help;
+}

@@ -203,6 +203,9 @@ export function CampaignPage() {
   const remainingUnits = BigInt(campaign.goal.toString()) - raisedUnits
   const amountText = amount ?? (remainingUnits > 0n ? usdcInputValue(remainingUnits) : '')
   const hasShopReference = campaign.reference !== null
+  // Captured so async callbacks below keep the narrowed (non-null) values.
+  const payoutRecipient = campaign.recipient
+  const goalUnitsBN = campaign.goal
 
   // This campaign's own leaderboard: the same ranking as the global one,
   // counting only this campaign's receipts. Refunded receipts are gone already.
@@ -241,7 +244,15 @@ export function CampaignPage() {
       amount: units,
       nickname: nickname.trim(),
       invite: withInvite && invite ? invite.publicKey : null,
+      // The contribution that completes the goal pays the recipient in the
+      // same transaction: a shop gets its order paid the instant the group
+      // finishes, with nobody having to press "pay out".
+      payout: completesGoal(units)
+        ? { recipient: campaign.recipient, reference: campaign.reference, memo: campaign.memo }
+        : null,
     })
+
+  const completesGoal = (units: BN) => units.gte(campaign.goal.sub(campaign.totalRaised))
 
   /**
    * Permissionless: whoever signs, the money only ever goes to the stored
@@ -295,12 +306,18 @@ export function CampaignPage() {
       async (networkCost) => {
         // The receipt account is created on a first contribution only.
         const deposit = myContribution ? 0 : await accountDeposit(connection, CONTRIBUTION_ACCOUNT_SPACE)
+        const completes = completesGoal(units)
+        const recipientDeposit = completes
+          ? await openingDeposit(payoutRecipient, "Opening the recipient's USDC account")
+          : []
         return {
-          heading: 'Review your contribution',
-          parties: [
-            { label: 'Locked in this campaign account', address: campaignAddress },
-            { label: 'Paid out to this recipient if the goal is reached', address: recipientAddress },
-          ],
+          heading: completes ? 'Review your contribution — it completes the goal' : 'Review your contribution',
+          parties: completes
+            ? [{ label: 'Paid out right now, in this same transaction, to', address: recipientAddress }]
+            : [
+                { label: 'Locked in this campaign account', address: campaignAddress },
+                { label: 'Paid out to this recipient if the goal is reached', address: recipientAddress },
+              ],
           lines: [
             { label: 'Your contribution', asset: 'usdc', amount: Number(units.toString()), direction: 'out' },
             ...(deposit
@@ -314,9 +331,18 @@ export function CampaignPage() {
                   },
                 ]
               : []),
+            ...recipientDeposit,
             fee(networkCost),
           ],
           facts: [
+            ...(completes
+              ? [
+                  `Your contribution completes the goal, so the program pays the whole ${formatUsdc(goalUnitsBN)} to the recipient in this same transaction — nobody has to press “pay out”.` +
+                    (hasShopReference
+                      ? ' The payment carries the shop’s order reference, so the shop sees the order paid the moment it lands.'
+                      : ''),
+                ]
+              : []),
             'You cannot take this back while the campaign is open, even if you change your mind.',
             `If the goal is missed by ${formatDateTime(deadline)}, or the organizer cancels, you can take back exactly this amount.`,
             'If the goal is reached, it goes to the recipient above and cannot be refunded.',

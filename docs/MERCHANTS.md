@@ -15,6 +15,11 @@ A working example is the demo shop at `/demo-shop` in the app
 (`app/src/pages/DemoShopPage.tsx`). It is a pretend café that only deals in
 test money.
 
+**The shop is paid the instant the order is complete.** The contribution that
+reaches the total pays you in that same transaction — the program requires it
+for a shop order, so nobody has to remember to "send it on" and there is no
+window where the money sits collected but unpaid.
+
 ---
 
 ## 1. Build the payment link

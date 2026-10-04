@@ -155,9 +155,10 @@ export function DemoShopPage() {
               Pay together with Chip In
             </a>
             <p className="aside">
-              Opens Chip In with this order filled in. Your group collects the {formatUsdc(ORDER_TOTAL)};
-              when the goal is reached, anyone sends it here. If the group does not make it, everyone
-              gets their money back — and this order stays unpaid.
+              Opens Chip In with this order filled in. Your group collects the {formatUsdc(ORDER_TOTAL)},
+              and the contribution that completes it pays this shop in the very same transaction — no
+              one has to send it on. If the group does not make it, everyone gets their money back,
+              and this order stays unpaid.
             </p>
             <p className="aside">
               Waiting for payment… This page checks the chain every few seconds for a transaction

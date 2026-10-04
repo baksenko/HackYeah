@@ -98,6 +98,9 @@ async function main() {
         contributorToken: getAssociatedTokenAddressSync(TEST_USDC.publicKey, who.publicKey),
         vault: getAssociatedTokenAddressSync(TEST_USDC.publicKey, campaign, true),
         invite: invite ? invite.publicKey : null,
+        // No instant payout here, so "Shelter for street cats" stays in the
+        // succeeded-but-not-yet-paid state for the demo.
+        recipient: null, recipientToken: null, reference: null,
       })
       .signers(invite ? [who, invite] : [who]).rpc();
   };

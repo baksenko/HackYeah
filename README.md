@@ -174,13 +174,25 @@ public campaigns; it was removed as a privileged key.)
 
 ---
 
+## Recipient names (.sol)
+
+Every address in the app shows the wallet's primary **Solana Name Service**
+name in front of it when it has one (e.g. `anna.sol`), so people can recognise
+who receives the money. SNS lives on mainnet, so this is a **read-only name
+lookup on mainnet** — no transaction or money ever goes there. The full address
+stays visible next to the name: anyone can register a free name, so a name is
+a label, not proof of identity. Stale names (transferred since being set) are
+not shown. The public mainnet RPC rate-limits heavily; set
+`VITE_SNS_RPC_ENDPOINT` to a dedicated mainnet RPC for a real deployment
+(`app/src/lib/sns.ts`).
+
 ## Who can call what
 
 | Instruction | Who may sign | Conditions enforced on chain | Rejects with |
 |---|---|---|---|
 | `create_campaign` | Anyone (becomes the organiser) | mint is the configured USDC; `goal > 0`; `deadline > now`; recipient set; title ≤ 64 bytes; ≤ 5 tags; description ≤ 300 bytes; image link empty or `https://`, ≤ 200 bytes; optional Solana Pay reference and memo (≤ 64 bytes); optional invite key makes it private | `WrongMint`, `InvalidGoal`, `InvalidDeadline`, `InvalidRecipient`, `TitleTooLong`, `TooManyTags`, `DescriptionTooLong`, `ImageUrlTooLong`, `InvalidImageUrl`, `MemoTooLong` |
-| `contribute` | Anyone (public) · invite-link holders only (private) | status Active; `now < deadline`; `0 < amount ≤ goal − raised` (the remaining amount is logged when refused); recipient unchanged; nickname ≤ 32 bytes; invite co-signs if private | `CampaignNotActive`, `DeadlinePassed`, `InvalidAmount`, `ExceedsGoal`, `RecipientChanged`, `NicknameTooLong`, `InviteRequired`, `InvalidInvite`, `WrongMint` |
-| `withdraw` | **Anyone** — pays exactly `total_raised` (= the goal) only to `campaign.recipient` | status Succeeded (goal reached); once; carries the campaign's reference account if it has one | `GoalNotReached`, `AlreadyWithdrawn`, `CampaignCancelled`, `NotRecipient`, `ReferenceRequired`, `WrongReference` |
+| `contribute` | Anyone (public) · invite-link holders only (private) | status Active; `now < deadline`; `0 < amount ≤ goal − raised` (the remaining amount is logged when refused); recipient unchanged; nickname ≤ 32 bytes; invite co-signs if private. **The contribution that reaches the goal pays the recipient in the same transaction** when it carries the payout accounts — mandatory for shop orders, so a shop is paid the instant the group completes | `CampaignNotActive`, `DeadlinePassed`, `InvalidAmount`, `ExceedsGoal`, `RecipientChanged`, `NicknameTooLong`, `InviteRequired`, `InvalidInvite`, `WrongMint`, `PayoutAccountsRequired`, `NotRecipient`, `WrongRecipientAccount`, `ReferenceRequired`, `WrongReference` |
+| `withdraw` | **Anyone** — pays exactly `total_raised` (= the goal) only to `campaign.recipient`. A fallback: usually the completing contribution has already paid out | status Succeeded (goal reached); once; carries the campaign's reference account if it has one | `GoalNotReached`, `AlreadyWithdrawn`, `CampaignCancelled`, `NotRecipient`, `ReferenceRequired`, `WrongReference` |
 | `refund` | **Only the contributor of that receipt** | cancelled, or deadline passed with the goal missed | `DeadlineNotReached`, `GoalReached` |
 | `cancel` | **Only `campaign.organizer`** | status Active (goal not reached) | `NotOrganizer`, `GoalReached`, `CampaignCancelled` |
 | `update_recipient` | **Only `campaign.organizer`** | status Active and nothing raised yet; sets recipient, reference and memo together | `NotOrganizer`, `RecipientLocked`, `CampaignNotActive`, `InvalidRecipient`, `MemoTooLong` |

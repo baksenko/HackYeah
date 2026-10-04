@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { explorerAddress } from '../lib/cluster'
+import { useSolName } from '../lib/sns'
 
 /**
  * A full address, never shortened, with a way to copy it. Anywhere a user
@@ -17,6 +18,7 @@ export function Address({
   explorer?: boolean
 }) {
   const [copied, setCopied] = useState(false)
+  const solName = useSolName(address)
 
   useEffect(() => {
     if (!copied) return
@@ -36,6 +38,14 @@ export function Address({
 
   return (
     <span className="address">
+      {solName && (
+        <span
+          className="sol-name"
+          title="This wallet's name on Solana Name Service. Anyone can register a free name, so check the address too."
+        >
+          {solName}
+        </span>
+      )}
       <span className="mono address-text">{address}</span>
       {you && <span className="you"> you</span>}
       <span className="address-actions">
