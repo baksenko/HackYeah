@@ -443,7 +443,7 @@ export type Fundraiser = {
           "docs": [
             "Only the configured USDC mint; any other token is refused."
           ],
-          "address": "BSMC8D2tMSKrz5HFsNKJmAHDDsocVD5MypWD9podcoUe"
+          "address": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
         },
         {
           "name": "vault",
@@ -1801,13 +1801,8 @@ export type Fundraiser = {
     },
     {
       "name": "usdcMint",
-      "docs": [
-        "LOCALNET / TESTS ONLY: a stand-in \"USDC\" mint whose address comes from the",
-        "public seed sha256(\"chip-in:localnet-test-usdc:v1\"), so tests and the local",
-        "seed script can create it at exactly this address. Worthless by design."
-      ],
       "type": "pubkey",
-      "value": "BSMC8D2tMSKrz5HFsNKJmAHDDsocVD5MypWD9podcoUe"
+      "value": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
     }
   ]
 };

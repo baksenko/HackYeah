@@ -15,10 +15,14 @@ Devnet only. No real money.
 - **Anchor** 1.2.0 · **Agave** (solana-cli) 4.3.0 · program toolchain pinned in
   `program/rust-toolchain.toml`
 
-> **Deployment status.** The program builds and passes its full test suite,
-> and the frontend has been driven end to end against a local validator. It is
-> **not deployed to devnet yet**: the devnet SOL needed for the deploy was not
-> available (faucet rate limits). See [Deploying to devnet](#deploying-to-devnet).
+> **Deployment status.** Deployed to devnet on 2026-10-04
+> ([Explorer](https://explorer.solana.com/address/HZYrUYrRqNt76f8Qh2tcJsxWk2dVep4sFHruWi7k7aJw?cluster=devnet)),
+> built for Circle's devnet USDC. The program passes its full test suite and
+> the frontend has been driven end to end against a local validator. On devnet
+> so far: a campaign was created through the app and an early payout was
+> refused on chain (`GoalNotReached`). Contributing and paying out with devnet
+> USDC on devnet: [TODO: devnet end-to-end run with devnet USDC]. The program
+> is **still upgradeable** — see [Can the authors change anything?](#can-the-authors-change-anything).
 
 ---
 
@@ -478,8 +482,9 @@ solana config set --url devnet
 ./scripts/deploy-devnet.sh
 ```
 
-Deploying needs [TODO: measured SOL cost of deploying the current .so] of
-devnet SOL for the program's rent.
+The 2026-10-04 deploy of the current build (278,536 bytes) cost 1.418 devnet
+SOL in total: 1.416 SOL rent held by the program's data account, the rest in
+fees. A larger build costs more.
 
 `deploy-devnet.sh` builds with `--features devnet`, refuses to continue if
 the build would not accept devnet USDC, deploys, and copies the IDL, types
@@ -572,7 +577,6 @@ fund them with SOL and Circle devnet USDC (above); locally, use the app's
 
 ## Known limitations and next steps
 
-- **Not deployed to devnet yet** — see [Deploying to devnet](#deploying-to-devnet).
 - **The program is still upgradeable** until `make-immutable.sh` is run. See
   [Can the authors change anything?](#can-the-authors-change-anything).
 - **No Solana Pay transaction-request endpoint** (no server by design); the
