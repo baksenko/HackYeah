@@ -5,6 +5,7 @@ import { WalletBalance } from './components/WalletBalance'
 import { CampaignPage } from './pages/CampaignPage'
 import { CampaignsPage } from './pages/CampaignsPage'
 import { CreateCampaignPage } from './pages/CreateCampaignPage'
+import { DemoShopPage } from './pages/DemoShopPage'
 import { HomePage } from './pages/HomePage'
 import { LeaderboardPage } from './pages/LeaderboardPage'
 import { PROGRAM_ID } from './lib/program'
@@ -45,6 +46,7 @@ export function App() {
           <Route path="/new" element={<CreateCampaignPage />} />
           {/* The merchant entry point: /create?pay=<url-encoded Solana Pay link> */}
           <Route path="/create" element={<CreateCampaignPage />} />
+          <Route path="/demo-shop" element={<DemoShopPage />} />
           <Route path="/c/:address" element={<CampaignPage />} />
           <Route path="*" element={<p className="empty">Nothing here.</p>} />
         </Routes>
@@ -55,7 +57,8 @@ export function App() {
           The rules of every campaign live in a Solana program, not in this web page.{' '}
           <a href={explorerAddress(PROGRAM_ID.toBase58())} target="_blank" rel="noreferrer">
             Inspect the program on Solana Explorer →
-          </a>
+          </a>{' '}
+          · <Link to="/demo-shop">Try the demo shop</Link>
         </p>
       </footer>
     </div>
