@@ -54,4 +54,12 @@ pub enum FundraiserError {
     RecipientChanged,
     #[msg("The campaign was cancelled; contributors can take their money back")]
     CampaignCancelled,
+    #[msg("Memo must be at most 64 bytes")]
+    MemoTooLong,
+    #[msg("This payout must carry the campaign's payment reference")]
+    ReferenceRequired,
+    #[msg("This is not the campaign's payment reference")]
+    WrongReference,
+    #[msg("This contribution is more than the amount still needed to reach the goal")]
+    ExceedsGoal,
 }

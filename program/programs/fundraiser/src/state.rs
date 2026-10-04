@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 
-use crate::constants::{MAX_DESCRIPTION_LEN, MAX_IMAGE_URL_LEN, MAX_NICKNAME_LEN, MAX_TITLE_LEN};
+use crate::constants::{
+    MAX_DESCRIPTION_LEN, MAX_IMAGE_URL_LEN, MAX_MEMO_LEN, MAX_NICKNAME_LEN, MAX_TITLE_LEN,
+};
 
 /// Where a campaign is in its life. Stored, not derived, so every rule can
 /// check it directly and the app can filter on it.
@@ -67,6 +69,14 @@ pub struct Campaign {
     /// is fixed on chain -- whoever hosts the image could still change it.
     #[max_len(MAX_IMAGE_URL_LEN)]
     pub image_url: String,
+    /// Solana Pay: when set, every payout must carry this account (read-only),
+    /// so the shop that asked for the payment can find it by its reference.
+    /// Changeable only together with the recipient, before any contribution.
+    pub reference: Option<Pubkey>,
+    /// Solana Pay: the shop's memo, added to the payout transaction by the
+    /// app. Empty when none. Same change rules as `reference`.
+    #[max_len(MAX_MEMO_LEN)]
+    pub memo: String,
     pub bump: u8,
 }
 

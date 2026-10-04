@@ -34,15 +34,15 @@ const status = async (h: Harness, campaign: PublicKey) =>
   Object.keys((await h.program.account.campaign.fetch(campaign)).status)[0];
 
 describe("withdraw", () => {
-  it("lets anyone pay the full vault to the recipient as soon as the goal is reached", async () => {
-    const { h, recipient, campaign, vault } = await funded(100, [60, 30, 15]); // 105
+  it("lets anyone pay what was raised to the recipient as soon as the goal is reached", async () => {
+    const { h, recipient, campaign, vault } = await funded(100, [60, 30, 10]); // exactly the goal
     assert.equal(await status(h, campaign), "succeeded");
 
     const stranger = h.wallet(); // not organizer, recipient or contributor
     const reference = Keypair.generate().publicKey;
     await withdraw(h, campaign, stranger, { reference }); // before the deadline
 
-    assert.equal(h.tokenBalance(tokenAccountOf(recipient)), BigInt(105 * USDC));
+    assert.equal(h.tokenBalance(tokenAccountOf(recipient)), BigInt(100 * USDC));
     assert.equal(h.tokenBalance(vault), 0n);
     assert.equal(await status(h, campaign), "withdrawn");
 
@@ -50,7 +50,7 @@ describe("withdraw", () => {
     assert.equal(event.name, "withdrawn");
     assert.ok(event.data.recipient.equals(recipient));
     assert.ok(event.data.caller.equals(stranger.publicKey));
-    assert.equal(event.data.amount.toNumber(), 105 * USDC);
+    assert.equal(event.data.amount.toNumber(), 100 * USDC);
     assert.ok(event.data.reference.equals(reference), "the Solana Pay reference is recorded");
   });
 

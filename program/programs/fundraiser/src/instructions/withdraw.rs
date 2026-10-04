@@ -53,9 +53,10 @@ pub struct Withdraw<'info> {
     )]
     pub recipient_token: Account<'info, TokenAccount>,
 
-    /// CHECK: optional, read-only and never used by the program. It only
-    /// appears in the transaction so a store can find this payout by the
-    /// reference key of its Solana Pay payment request.
+    /// CHECK: read-only, never signs, never read or written. When the
+    /// campaign stores a Solana Pay reference this must be exactly that
+    /// account (checked in the handler), so the payout transaction is always
+    /// findable by the shop's reference. Otherwise it is optional.
     pub reference: Option<UncheckedAccount<'info>>,
 
     pub token_program: Program<'info, Token>,
@@ -63,8 +64,10 @@ pub struct Withdraw<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Pays the whole vault to the recipient once the goal has been reached --
-/// possibly before the deadline. Possible exactly once.
+/// Pays exactly what was raised -- the goal, since contributions are capped
+/// at it -- to the recipient once the goal has been reached, possibly before
+/// the deadline. Possible exactly once. Tokens sent to the vault directly,
+/// outside `contribute`, are not part of the payout.
 pub fn handle_withdraw(ctx: Context<Withdraw>) -> Result<()> {
     match ctx.accounts.campaign.status {
         CampaignStatus::Succeeded => {}
@@ -73,9 +76,22 @@ pub fn handle_withdraw(ctx: Context<Withdraw>) -> Result<()> {
         CampaignStatus::Cancelled => return err!(FundraiserError::CampaignCancelled),
     }
 
-    // The full vault: every contribution, plus anything sent to it directly.
-    let amount = ctx.accounts.vault.amount;
     let campaign = &ctx.accounts.campaign;
+
+    // A payment request's reference must ride along, so the shop can find
+    // this payout. Anyone can supply it: it is public in the campaign.
+    if let Some(expected) = campaign.reference {
+        let reference = ctx
+            .accounts
+            .reference
+            .as_ref()
+            .ok_or(FundraiserError::ReferenceRequired)?;
+        require_keys_eq!(reference.key(), expected, FundraiserError::WrongReference);
+    }
+
+    // Exactly what was contributed: never more than the goal, so the shop
+    // receives precisely the amount it asked for.
+    let amount = campaign.total_raised;
     let id_bytes = campaign.campaign_id.to_le_bytes();
     let seeds: &[&[u8]] = &[
         CAMPAIGN_SEED,

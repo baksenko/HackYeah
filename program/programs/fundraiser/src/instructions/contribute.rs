@@ -102,6 +102,15 @@ pub fn handle_contribute(
         );
         let now = Clock::get()?.unix_timestamp;
         require!(now < campaign.deadline, FundraiserError::DeadlinePassed);
+        // Never past the goal: the payout must equal the goal exactly.
+        let remaining = campaign
+            .goal
+            .checked_sub(campaign.total_raised)
+            .ok_or(FundraiserError::MathOverflow)?;
+        if amount > remaining {
+            msg!("Only {} base units are still needed to reach the goal", remaining);
+            return err!(FundraiserError::ExceedsGoal);
+        }
         require_keys_eq!(
             campaign.recipient,
             expected_recipient,

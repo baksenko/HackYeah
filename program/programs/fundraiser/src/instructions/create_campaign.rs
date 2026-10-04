@@ -60,6 +60,8 @@ pub fn handle_create_campaign(
     tags: u32,
     description: String,
     image_url: String,
+    reference: Option<Pubkey>,
+    memo: String,
 ) -> Result<()> {
     require!(title.len() <= MAX_TITLE_LEN, FundraiserError::TitleTooLong);
     require!(
@@ -75,6 +77,7 @@ pub fn handle_create_campaign(
         image_url.is_empty() || image_url.starts_with("https://"),
         FundraiserError::InvalidImageUrl
     );
+    require!(memo.len() <= MAX_MEMO_LEN, FundraiserError::MemoTooLong);
     require!(tags.count_ones() <= MAX_TAGS, FundraiserError::TooManyTags);
     require!(goal > 0, FundraiserError::InvalidGoal);
     require!(recipient != Pubkey::default(), FundraiserError::InvalidRecipient);
@@ -99,6 +102,8 @@ pub fn handle_create_campaign(
     campaign.tags = tags;
     campaign.description = description;
     campaign.image_url = image_url;
+    campaign.reference = reference;
+    campaign.memo = memo;
     campaign.bump = ctx.bumps.campaign;
 
     emit!(CampaignCreated {

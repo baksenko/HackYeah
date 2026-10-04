@@ -20,10 +20,16 @@ pub struct UpdateRecipient<'info> {
     pub campaign: Account<'info, Campaign>,
 }
 
-/// Fixes a mistyped recipient. Allowed only while nobody has contributed:
-/// the first contribution locks the recipient for good, so nobody's money
-/// can ever be redirected.
-pub fn handle_update_recipient(ctx: Context<UpdateRecipient>, new_recipient: Pubkey) -> Result<()> {
+/// Fixes a mistyped recipient, together with the Solana Pay reference and
+/// memo that belong to it. Allowed only while nobody has contributed: the
+/// first contribution locks all three for good, so nobody's money can ever
+/// be redirected.
+pub fn handle_update_recipient(
+    ctx: Context<UpdateRecipient>,
+    new_recipient: Pubkey,
+    reference: Option<Pubkey>,
+    memo: String,
+) -> Result<()> {
     let campaign = &mut ctx.accounts.campaign;
     require!(
         campaign.status == CampaignStatus::Active,
@@ -34,14 +40,19 @@ pub fn handle_update_recipient(ctx: Context<UpdateRecipient>, new_recipient: Pub
         new_recipient != Pubkey::default(),
         FundraiserError::InvalidRecipient
     );
+    require!(memo.len() <= MAX_MEMO_LEN, FundraiserError::MemoTooLong);
 
     let old_recipient = campaign.recipient;
     campaign.recipient = new_recipient;
+    campaign.reference = reference;
+    campaign.memo = memo.clone();
 
     emit!(RecipientUpdated {
         campaign: campaign.key(),
         old_recipient,
         new_recipient,
+        reference,
+        memo,
     });
     Ok(())
 }
