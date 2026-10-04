@@ -255,13 +255,18 @@ the address. Use *Contribute*.
 
 ### Paying a store
 
-The create form's recipient field also accepts a store's **Solana Pay
-transfer link** (`solana:<recipient>?amount=…&spl-token=…&reference=…`). The
-app takes the recipient from it, offers the amount as the goal when the link
-asks for USDC, and warns when it asks for SOL or another token. The link's
-`reference` is remembered **in the creating browser only** and attached to the
-payout, so the store can find it; a payout triggered from another browser goes
-out without it.
+A shop can send customers to `/create?pay=<url-encoded Solana Pay link>`.
+Recipient, amount (the goal) and order name come from the link and are locked;
+the link's `reference` and `memo` are stored in the campaign, so every payout
+carries them, whoever triggers it. The shop confirms payment by looking up its
+reference and checking that its USDC went up by exactly the order total
+(`app/src/lib/paymentCheck.ts`). `/demo-shop` is a working example.
+
+The create form's recipient field also accepts such a link pasted by hand; the
+app warns when it asks for SOL or another token.
+
+For shops: [docs/MERCHANTS.md](docs/MERCHANTS.md). What this does and does not
+remove the need to trust: [docs/ANALYSIS.md](docs/ANALYSIS.md#shop-payments-what-is-trustless-and-what-is-not).
 
 ### Tags, search and nicknames
 
@@ -573,8 +578,12 @@ fund them with SOL and Circle devnet USDC (above); locally, use the app's
 - **No Solana Pay transaction-request endpoint** (no server by design); the
   share QR can open the page inside Phantom or Solflare instead. See
   [Sharing](#sharing).
-- **Solana Pay references are remembered in one browser only.** A payout
-  triggered elsewhere goes out without the store's reference.
+- **Shops cannot set an expiry.** The customer picks the deadline, and a
+  payout cannot be stopped once the goal is reached. See
+  [MERCHANTS.md](docs/MERCHANTS.md#4-short-checkout-expiry-is-not-supported-directly).
+- **`@solana/pay`'s `validateTransfer` rejects Chip In payouts** (it expects a
+  top-level token transfer); shops verify by balance change instead
+  (`app/src/lib/paymentCheck.ts`).
 - **No "change recipient" button yet.** The program supports correcting the
   recipient before the first contribution; the app does not offer it.
 - **Deposits.** A first contribution's receipt deposit is returned with a
@@ -589,8 +598,9 @@ fund them with SOL and Circle devnet USDC (above); locally, use the app's
   identity.**
 - **Search runs in the browser.** Past a few thousand campaigns it needs an
   indexer — the `CampaignIndex` interface is where one plugs in.
-- **Fiat off-ramp, a Squads multisig as recipient, and group voting on
-  spending** are out of scope. The recipient can already be any address,
-  including a multisig vault.
+- **Fiat off-ramp and group voting on spending** are out of scope. The
+  recipient can be any address, including a Squads multisig vault, which we
+  recommend for shops ([MERCHANTS.md](docs/MERCHANTS.md#5-recommended-receive-into-a-squads-vault));
+  not yet tested with a real Squads vault.
 - **Not audited.** Devnet, test money, a hackathon project. Do not put real
   money anywhere near this.
