@@ -7,15 +7,22 @@ const BY_CODE = new Map<number, { name: string; msg: string }>(
 
 /** Plain-language gloss for the errors a user can actually trigger. */
 const PLAIN_LANGUAGE: Record<string, string> = {
-  DeadlineNotReached: 'The deadline has not passed yet, so the money cannot be paid out.',
+  DeadlineNotReached: 'The deadline has not passed yet, so refunds are not open.',
   DeadlinePassed: 'This campaign is closed, so it cannot take new contributions.',
-  GoalNotReached: 'The goal was not reached, so there is nothing to withdraw — contributors can take their money back instead.',
-  GoalReached: 'The goal was reached, so the money belongs to the recipient and cannot be refunded.',
-  NotRecipient: 'Only the recipient chosen when this campaign was created can withdraw.',
-  AlreadyWithdrawn: 'The money has already been paid out.',
-  KycRequired: 'Public campaigns need a verified organizer. Verify your identity first — private campaigns for friends do not need it.',
-  NotVerifier: 'Only the KYC verifier can verify an identity.',
-  DescriptionTooLong: 'The description is too long: the program allows 500 bytes.',
+  GoalNotReached: 'The goal has not been reached, so the money cannot be paid out yet.',
+  GoalReached: 'The goal was reached, so the money belongs to the recipient: it cannot be refunded or cancelled.',
+  NotRecipient: 'The money can only ever go to the recipient chosen for this campaign.',
+  AlreadyWithdrawn: 'The money has already been paid out to the recipient.',
+  CampaignNotActive: 'This campaign is no longer taking contributions or changes.',
+  CampaignCancelled: 'The organizer cancelled this campaign, so everyone can take their money back instead.',
+  RecipientLocked: 'The recipient can only be changed before anyone contributes.',
+  RecipientChanged: 'The organizer changed the recipient since you opened this page. Reload and check who the money goes to.',
+  InvalidRecipient: 'Enter a real Solana address for the recipient.',
+  NotOrganizer: 'Only the organizer of this campaign can do that.',
+  WrongMint: 'This program only accepts USDC.',
+  NoUsdcAccount: 'Your wallet has no USDC yet. Get some USDC first, then try again.',
+  NotEnoughUsdc: 'Your wallet does not hold enough USDC for this.',
+  DescriptionTooLong: 'The description is too long: the program allows 300 bytes.',
   ImageUrlTooLong: 'The photo link is too long: the program allows 200 bytes.',
   InvalidImageUrl: 'The photo link must start with https://.',
   AccountNotInitialized: 'There is no contribution left to refund — it was already paid back.',
@@ -24,7 +31,7 @@ const PLAIN_LANGUAGE: Record<string, string> = {
   NicknameTooLong: 'Your nickname can be at most 32 characters.',
   WalletHasNoSol:
     'Your wallet has no SOL on this network, so it cannot even pay the transaction fee. Use “Get test SOL” at the top of the page, and check your wallet is set to the same network as this app.',
-  NotEnoughSol: 'Your wallet does not hold enough SOL for this. Use “Get test SOL” at the top of the page.',
+  NotEnoughSol: 'Your wallet does not hold enough SOL for the fee and deposit. Use “Get test SOL” at the top of the page.',
 }
 
 export type ProgramFailure = {
@@ -42,7 +49,11 @@ export type ProgramFailure = {
  * transaction that landed and failed.
  */
 export function explainFailure(input: unknown, logs?: string[] | null): ProgramFailure {
-  const name = findErrorName(input, logs)
+  let name = findErrorName(input, logs)
+  // A missing USDC account to pay from is not a missing receipt.
+  if (name === 'AccountNotInitialized' && /contributor_token/.test(describe(input, logs))) {
+    name = 'NoUsdcAccount'
+  }
   const known = name ? [...BY_CODE.values()].find((e) => e.name === name) : undefined
 
   const fallback =
@@ -57,16 +68,21 @@ export function explainFailure(input: unknown, logs?: string[] | null): ProgramF
   }
 }
 
+/** Everything an error carries, as one searchable string. */
+function describe(input: unknown, logs?: string[] | null): string {
+  const e = input as { logs?: string[]; message?: unknown; error?: { origin?: unknown } }
+  return [...(logs ?? []), ...(e?.logs ?? []), String(e?.message ?? ''), String(e?.error?.origin ?? '')].join('\n')
+}
+
 function findErrorName(input: unknown, logs?: string[] | null): string | null {
   // 1. Anchor already parsed it for us.
   const code = (input as { error?: { errorCode?: { code?: string } } })?.error?.errorCode?.code
   if (typeof code === 'string') return code
 
-  const haystack = [
-    ...(logs ?? []),
-    ...((input as { logs?: string[] })?.logs ?? []),
-    String((input as { message?: unknown })?.message ?? ''),
-  ].join('\n')
+  const haystack = describe(input, logs)
+
+  // The token program's own failure: not enough USDC in the paying account.
+  if (/Error: insufficient funds/i.test(haystack)) return 'NotEnoughUsdc'
 
   // 2. Anchor's log line: "... Error Code: DeadlineNotReached. Error Number: 6000."
   const byName = haystack.match(/Error Code: (\w+)/)

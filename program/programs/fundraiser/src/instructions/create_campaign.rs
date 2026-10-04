@@ -1,9 +1,14 @@
 use anchor_lang::prelude::*;
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{Mint, Token, TokenAccount},
+};
 
 use crate::{
     constants::*,
     error::FundraiserError,
-    state::{Campaign, Verification},
+    events::CampaignCreated,
+    state::{Campaign, CampaignStatus},
 };
 
 #[derive(Accounts)]
@@ -21,14 +26,23 @@ pub struct CreateCampaign<'info> {
     )]
     pub campaign: Account<'info, Campaign>,
 
-    /// The organizer's identity verification. Required for a public campaign;
-    /// the seeds tie it to this organizer, so nobody can borrow another's.
-    #[account(
-        seeds = [VERIFICATION_SEED, organizer.key().as_ref()],
-        bump = verification.bump,
-    )]
-    pub verification: Option<Account<'info, Verification>>,
+    /// Only the configured USDC mint; any other token is refused.
+    #[account(address = USDC_MINT @ FundraiserError::WrongMint)]
+    pub mint: Account<'info, Mint>,
 
+    /// The escrow: the campaign's own associated token account for `mint`.
+    /// Its authority is the campaign PDA, so only this program can move it.
+    #[account(
+        init,
+        payer = organizer,
+        associated_token::mint = mint,
+        associated_token::authority = campaign,
+        associated_token::token_program = token_program,
+    )]
+    pub vault: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
@@ -63,16 +77,7 @@ pub fn handle_create_campaign(
     );
     require!(tags.count_ones() <= MAX_TAGS, FundraiserError::TooManyTags);
     require!(goal > 0, FundraiserError::InvalidGoal);
-
-    // Public crowdfunding takes money from strangers, so its organizer must be
-    // identity-verified. Private friend-group campaigns (with an invite) are
-    // exempt. Enforced here, so a modified frontend cannot skip it.
-    if invite.is_none() {
-        require!(
-            ctx.accounts.verification.is_some(),
-            FundraiserError::KycRequired
-        );
-    }
+    require!(recipient != Pubkey::default(), FundraiserError::InvalidRecipient);
 
     // Any future deadline is legal, including one two minutes out, so both
     // outcomes can be demonstrated live.
@@ -82,25 +87,28 @@ pub fn handle_create_campaign(
     let campaign = &mut ctx.accounts.campaign;
     campaign.organizer = ctx.accounts.organizer.key();
     campaign.recipient = recipient;
+    campaign.mint = ctx.accounts.mint.key();
     campaign.campaign_id = campaign_id;
+    campaign.status = CampaignStatus::Active;
     campaign.title = title;
     campaign.goal = goal;
     campaign.deadline = deadline;
     campaign.total_raised = 0;
     campaign.total_refunded = 0;
-    campaign.withdrawn = false;
     campaign.invite = invite;
     campaign.tags = tags;
     campaign.description = description;
     campaign.image_url = image_url;
     campaign.bump = ctx.bumps.campaign;
 
-    msg!(
-        "Campaign created: goal {} lamports, deadline {}, recipient {}, {}",
+    emit!(CampaignCreated {
+        campaign: campaign.key(),
+        organizer: campaign.organizer,
+        recipient,
+        mint: campaign.mint,
         goal,
         deadline,
-        recipient,
-        if invite.is_some() { "private" } else { "public" }
-    );
+        private: invite.is_some(),
+    });
     Ok(())
 }

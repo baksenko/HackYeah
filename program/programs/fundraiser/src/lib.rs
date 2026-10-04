@@ -1,17 +1,17 @@
 //! # Fundraiser
 //!
-//! A group fundraiser with no middleman. Contributions are locked in a
-//! program-owned account. If the goal is reached by the deadline, only the
-//! recipient named at creation can withdraw. If it is not, every contributor
-//! can reclaim exactly what they paid in. Nothing here can be edited after a
-//! campaign is created, and there is no admin, no fee and no pause switch.
-//!
-//! One trusted party exists: `KYC_VERIFIER`, which vouches for the organizers
-//! of public campaigns. It can only create verification records -- it has no
-//! power over any campaign or any money. In this build it is a public demo key.
+//! A group fundraiser with no middleman, in USDC. Contributions are locked
+//! in the campaign's vault, which only this program can move. Once the goal is
+//! reached, anyone can trigger the payout -- and it can only go to the stored
+//! recipient. If the goal is missed by the deadline, or the organizer cancels
+//! before it is reached, every contributor can take back exactly what they
+//! paid in. The recipient is locked by the first contribution; goal, deadline
+//! and mint can never change. There is no admin, no fee and no pause switch.
+
 
 pub mod constants;
 pub mod error;
+pub mod events;
 pub mod instructions;
 pub mod state;
 
@@ -19,6 +19,7 @@ use anchor_lang::prelude::*;
 
 pub use constants::*;
 pub use error::*;
+pub use events::*;
 pub use instructions::*;
 pub use state::*;
 
@@ -55,29 +56,42 @@ pub mod fundraiser {
         )
     }
 
-    /// Put SOL in. Signer: anyone while open; for a private campaign, also
-    /// the invite key from the share link.
-    pub fn contribute(ctx: Context<Contribute>, amount: u64, nickname: String) -> Result<()> {
-        instructions::contribute::handle_contribute(ctx, amount, nickname)
+    /// Fix the recipient before anyone has contributed. Signer: the organizer.
+    pub fn update_recipient(ctx: Context<UpdateRecipient>, new_recipient: Pubkey) -> Result<()> {
+        instructions::update_recipient::handle_update_recipient(ctx, new_recipient)
     }
 
-    /// Take the pot. Signer: the recipient only, after a successful deadline.
+    /// Put USDC in. Signer: anyone while Active and before the deadline; for
+    /// a private campaign, also the invite key from the share link.
+    /// `expected_recipient` must match the campaign's current recipient.
+    pub fn contribute(
+        ctx: Context<Contribute>,
+        amount: u64,
+        nickname: String,
+        expected_recipient: Pubkey,
+    ) -> Result<()> {
+        instructions::contribute::handle_contribute(ctx, amount, nickname, expected_recipient)
+    }
+
+    /// Pay the whole vault to the stored recipient once the goal is reached,
+    /// even before the deadline. Signer: anyone (permissionless).
     pub fn withdraw(ctx: Context<Withdraw>) -> Result<()> {
         instructions::withdraw::handle_withdraw(ctx)
     }
 
-    /// Take your own money back. Signer: a contributor, after a failed deadline.
+    /// Take your own money back. Signer: that contributor, once the deadline
+    /// passed without reaching the goal, or the campaign was cancelled.
     pub fn refund(ctx: Context<Refund>) -> Result<()> {
         instructions::refund::handle_refund(ctx)
     }
 
-    /// Mark a wallet as identity-verified, which unlocks public campaigns.
-    /// Signers: the wallet (pays rent) and `KYC_VERIFIER`.
-    pub fn verify_identity(ctx: Context<VerifyIdentity>) -> Result<()> {
-        instructions::verify_identity::handle_verify_identity(ctx)
+    /// Call the campaign off before its goal is reached, opening refunds.
+    /// Signer: the organizer.
+    pub fn cancel(ctx: Context<Cancel>) -> Result<()> {
+        instructions::cancel::handle_cancel(ctx)
     }
 
-    /// Reclaim the rent deposit once everything is settled. Signer: the organizer.
+    /// Reclaim the rent deposits once everything is settled. Signer: the organizer.
     pub fn close_campaign(ctx: Context<CloseCampaign>) -> Result<()> {
         instructions::close_campaign::handle_close_campaign(ctx)
     }

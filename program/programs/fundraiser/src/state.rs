@@ -2,34 +2,52 @@ use anchor_lang::prelude::*;
 
 use crate::constants::{MAX_DESCRIPTION_LEN, MAX_IMAGE_URL_LEN, MAX_NICKNAME_LEN, MAX_TITLE_LEN};
 
-/// One fundraiser. This account is program-owned and *is* the escrow: the
-/// contributed lamports live here, so no human key can move them.
+/// Where a campaign is in its life. Stored, not derived, so every rule can
+/// check it directly and the app can filter on it.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
+pub enum CampaignStatus {
+    /// Taking contributions.
+    Active,
+    /// The goal has been reached; the pot can be withdrawn to the recipient.
+    Succeeded,
+    /// The pot has been paid out to the recipient. Final.
+    Withdrawn,
+    /// Cancelled by the organizer before the goal was reached; contributors
+    /// can take their money back. Final.
+    Cancelled,
+}
+
+/// One fundraiser. The money is not held here: it sits in this campaign's
+/// vault, its associated token account for `mint`, which only this program
+/// can move -- to the recipient on success, or back to each contributor.
 ///
-/// Invariant on the lamport balance:
-///   balance == rent_exempt_reserve + (total_raised - total_refunded)
-/// or, after a successful withdrawal, just `rent_exempt_reserve`.
+/// Fixed-size fields come first so they sit at fixed offsets for
+/// `getProgramAccounts` memcmp filters:
+///   organizer 8, recipient 40, mint 72, campaign_id 104, status 112.
 #[account]
 #[derive(InitSpace)]
 pub struct Campaign {
-    /// Created the campaign and pays its rent. Holds no power over the funds.
+    /// Created the campaign and pays its rent. Can change the recipient only
+    /// while nothing has been raised, and has no power over the money.
     pub organizer: Pubkey,
-    /// The only key that may withdraw on success. Set at creation, never changed.
+    /// Where the pot goes on success. Locked by the first contribution.
     pub recipient: Pubkey,
+    /// The token this campaign raises: always the configured `USDC_MINT`.
+    pub mint: Pubkey,
     /// Organizer-chosen id, lets one organizer run many campaigns.
     pub campaign_id: u64,
+    pub status: CampaignStatus,
     /// Human-readable name, at most `MAX_TITLE_LEN` bytes.
     #[max_len(MAX_TITLE_LEN)]
     pub title: String,
-    /// Target in lamports. Reaching it is what unlocks `withdraw`.
+    /// Target in the mint's base units. Reaching it is what unlocks `withdraw`.
     pub goal: u64,
-    /// Unix timestamp. Before it: only `contribute`. After it: only `withdraw` or `refund`.
+    /// Unix timestamp after which no more contributions are accepted.
     pub deadline: i64,
     /// Sum of every contribution ever made.
     pub total_raised: u64,
     /// Sum of every refund ever paid out.
     pub total_refunded: u64,
-    /// Set once by `withdraw`; makes a second withdrawal impossible.
-    pub withdrawn: bool,
     /// `Some` makes the campaign private: `contribute` then requires this key
     /// to co-sign. Its secret travels only inside the organizer's share link,
     /// so only people holding that link can join. `None` means public.
@@ -67,15 +85,5 @@ pub struct Contribution {
     /// Chosen by the contributor, per campaign; empty means "show my address".
     #[max_len(MAX_NICKNAME_LEN)]
     pub nickname: String,
-    pub bump: u8,
-}
-
-/// Proof that `KYC_VERIFIER` checked this wallet's owner. Required to open a
-/// public campaign. Holds no personal data: only who was verified and when.
-#[account]
-#[derive(InitSpace)]
-pub struct Verification {
-    pub wallet: Pubkey,
-    pub verified_at: i64,
     pub bump: u8,
 }

@@ -24,8 +24,6 @@ pub enum FundraiserError {
     InvalidDeadline,
     #[msg("Arithmetic overflow")]
     MathOverflow,
-    #[msg("Campaign balance would drop below its rent-exempt reserve")]
-    InsufficientCampaignBalance,
     #[msg("Campaign can only be closed after a withdrawal or after every contribution was refunded")]
     CampaignNotSettled,
     #[msg("This campaign is private: contributing requires the organizer's invite link")]
@@ -36,14 +34,24 @@ pub enum FundraiserError {
     NicknameTooLong,
     #[msg("A campaign can have at most 5 tags")]
     TooManyTags,
-    #[msg("Opening a public campaign requires a verified identity")]
-    KycRequired,
-    #[msg("Only the KYC verifier can verify an identity")]
-    NotVerifier,
-    #[msg("Description must be at most 500 bytes")]
+    #[msg("Description must be at most 300 bytes")]
     DescriptionTooLong,
     #[msg("Image link must be at most 200 bytes")]
     ImageUrlTooLong,
     #[msg("Image link must be empty or start with https://")]
     InvalidImageUrl,
+    #[msg("This program only accepts the configured USDC mint")]
+    WrongMint,
+    #[msg("Only the organizer of this campaign can do this")]
+    NotOrganizer,
+    #[msg("The campaign is no longer taking changes")]
+    CampaignNotActive,
+    #[msg("The recipient is locked once anyone has contributed")]
+    RecipientLocked,
+    #[msg("The recipient must be a real address")]
+    InvalidRecipient,
+    #[msg("The recipient changed since you looked; check the campaign again")]
+    RecipientChanged,
+    #[msg("The campaign was cancelled; contributors can take their money back")]
+    CampaignCancelled,
 }

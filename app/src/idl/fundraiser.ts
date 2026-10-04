@@ -14,9 +14,67 @@ export type Fundraiser = {
   },
   "instructions": [
     {
+      "name": "cancel",
+      "docs": [
+        "Call the campaign off before its goal is reached, opening refunds.",
+        "Signer: the organizer."
+      ],
+      "discriminator": [
+        232,
+        219,
+        223,
+        41,
+        219,
+        236,
+        220,
+        190
+      ],
+      "accounts": [
+        {
+          "name": "organizer",
+          "signer": true,
+          "relations": [
+            "campaign"
+          ]
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.organizer",
+                "account": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "campaign.campaignId",
+                "account": "campaign"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "closeCampaign",
       "docs": [
-        "Reclaim the rent deposit once everything is settled. Signer: the organizer."
+        "Reclaim the rent deposits once everything is settled. Signer: the organizer."
       ],
       "discriminator": [
         65,
@@ -67,6 +125,68 @@ export type Fundraiser = {
               }
             ]
           }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "campaign.mint",
+                "account": "campaign"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
@@ -74,8 +194,9 @@ export type Fundraiser = {
     {
       "name": "contribute",
       "docs": [
-        "Put SOL in. Signer: anyone while open; for a private campaign, also",
-        "the invite key from the share link."
+        "Put USDC in. Signer: anyone while Active and before the deadline; for",
+        "a private campaign, also the invite key from the share link.",
+        "`expected_recipient` must match the campaign's current recipient."
       ],
       "discriminator": [
         82,
@@ -161,6 +282,80 @@ export type Fundraiser = {
           }
         },
         {
+          "name": "mint",
+          "docs": [
+            "The campaign's own mint (always USDC_MINT); needed by transfer_checked."
+          ]
+        },
+        {
+          "name": "contributorToken",
+          "docs": [
+            "Where the money comes from: the contributor's own token account for",
+            "this mint."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "Where the money goes: this campaign's vault and nothing else."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
           "name": "invite",
           "docs": [
             "Only for private campaigns: the invite key from the organizer's share",
@@ -168,6 +363,10 @@ export type Fundraiser = {
           ],
           "signer": true,
           "optional": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
           "name": "systemProgram",
@@ -182,6 +381,10 @@ export type Fundraiser = {
         {
           "name": "nickname",
           "type": "string"
+        },
+        {
+          "name": "expectedRecipient",
+          "type": "pubkey"
         }
       ]
     },
@@ -236,37 +439,80 @@ export type Fundraiser = {
           }
         },
         {
-          "name": "verification",
+          "name": "mint",
           "docs": [
-            "The organizer's identity verification. Required for a public campaign;",
-            "the seeds tie it to this organizer, so nobody can borrow another's."
+            "Only the configured USDC mint; any other token is refused."
           ],
-          "optional": true,
+          "address": "BSMC8D2tMSKrz5HFsNKJmAHDDsocVD5MypWD9podcoUe"
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "The escrow: the campaign's own associated token account for `mint`.",
+            "Its authority is the campaign PDA, so only this program can move it."
+          ],
+          "writable": true,
           "pda": {
             "seeds": [
               {
-                "kind": "const",
-                "value": [
-                  118,
-                  101,
-                  114,
-                  105,
-                  102,
-                  105,
-                  99,
-                  97,
-                  116,
-                  105,
-                  111,
-                  110
-                ]
+                "kind": "account",
+                "path": "campaign"
               },
               {
                 "kind": "account",
-                "path": "organizer"
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
               }
-            ]
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
           }
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         },
         {
           "name": "systemProgram",
@@ -317,7 +563,8 @@ export type Fundraiser = {
     {
       "name": "refund",
       "docs": [
-        "Take your own money back. Signer: a contributor, after a failed deadline."
+        "Take your own money back. Signer: that contributor, once the deadline",
+        "passed without reaching the goal, or the campaign was cancelled."
       ],
       "discriminator": [
         2,
@@ -332,6 +579,10 @@ export type Fundraiser = {
       "accounts": [
         {
           "name": "contributor",
+          "docs": [
+            "The contributor, asking for their own money back. Nobody else's",
+            "permission is needed."
+          ],
           "writable": true,
           "signer": true,
           "relations": [
@@ -375,9 +626,8 @@ export type Fundraiser = {
         {
           "name": "contribution",
           "docs": [
-            "`close = contributor` hands the rent back and wipes the receipt. That",
-            "is what makes a second refund impossible: the account the instruction",
-            "needs no longer exists."
+            "The receipt. `close = contributor` deletes it as it pays out and hands",
+            "its rent back, which is what makes a second refund impossible."
           ],
           "writable": true,
           "pda": {
@@ -409,71 +659,138 @@ export type Fundraiser = {
               }
             ]
           }
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "verifyIdentity",
-      "docs": [
-        "Mark a wallet as identity-verified, which unlocks public campaigns.",
-        "Signers: the wallet (pays rent) and `KYC_VERIFIER`."
-      ],
-      "discriminator": [
-        177,
-        162,
-        9,
-        111,
-        44,
-        84,
-        80,
-        21
-      ],
-      "accounts": [
-        {
-          "name": "wallet",
-          "docs": [
-            "The wallet being verified. Signs to accept the record and pays its rent."
-          ],
-          "writable": true,
-          "signer": true
         },
         {
-          "name": "verifier",
-          "docs": [
-            "Must be `KYC_VERIFIER`. Its signature is the verification."
-          ],
-          "signer": true,
-          "address": "6heuxcXmpLasM5dYeoFFFAXnhGLKLZNG4mPGFMZfqX3z"
+          "name": "mint",
+          "relations": [
+            "campaign"
+          ]
         },
         {
-          "name": "verification",
+          "name": "vault",
           "writable": true,
           "pda": {
             "seeds": [
               {
-                "kind": "const",
-                "value": [
-                  118,
-                  101,
-                  114,
-                  105,
-                  102,
-                  105,
-                  99,
-                  97,
-                  116,
-                  105,
-                  111,
-                  110
-                ]
+                "kind": "account",
+                "path": "campaign"
               },
               {
                 "kind": "account",
-                "path": "wallet"
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
               }
-            ]
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
           }
+        },
+        {
+          "name": "contributorToken",
+          "docs": [
+            "The contributor's own associated token account, reopened if they",
+            "closed it since contributing."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "contributor"
+              },
+              {
+                "kind": "account",
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         },
         {
           "name": "systemProgram",
@@ -483,9 +800,72 @@ export type Fundraiser = {
       "args": []
     },
     {
+      "name": "updateRecipient",
+      "docs": [
+        "Fix the recipient before anyone has contributed. Signer: the organizer."
+      ],
+      "discriminator": [
+        55,
+        190,
+        61,
+        121,
+        131,
+        132,
+        8,
+        54
+      ],
+      "accounts": [
+        {
+          "name": "organizer",
+          "signer": true,
+          "relations": [
+            "campaign"
+          ]
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.organizer",
+                "account": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "campaign.campaignId",
+                "account": "campaign"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "newRecipient",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "withdraw",
       "docs": [
-        "Take the pot. Signer: the recipient only, after a successful deadline."
+        "Pay the whole vault to the stored recipient once the goal is reached,",
+        "even before the deadline. Signer: anyone (permissionless)."
       ],
       "discriminator": [
         183,
@@ -499,11 +879,11 @@ export type Fundraiser = {
       ],
       "accounts": [
         {
-          "name": "recipient",
+          "name": "caller",
           "docs": [
-            "Must be the `recipient` recorded at creation. The constraint below is",
-            "the whole guarantee: no other key can sign this instruction into",
-            "success, whatever a frontend chooses to offer."
+            "Anyone. Withdrawing is permissionless: whoever calls it, the money can",
+            "only go to the stored recipient. The caller pays the transaction fee",
+            "and, if needed, the rent to open the recipient's token account."
           ],
           "writable": true,
           "signer": true
@@ -538,6 +918,159 @@ export type Fundraiser = {
               }
             ]
           }
+        },
+        {
+          "name": "recipient",
+          "docs": [
+            "owner of the token account the money goes to. Never signs."
+          ],
+          "relations": [
+            "campaign"
+          ]
+        },
+        {
+          "name": "mint",
+          "relations": [
+            "campaign"
+          ]
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "recipientToken",
+          "docs": [
+            "The recipient's own associated token account, opened here if it does",
+            "not exist yet, so a payout can never be blocked by a missing account."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "recipient"
+              },
+              {
+                "kind": "account",
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "reference",
+          "docs": [
+            "appears in the transaction so a store can find this payout by the",
+            "reference key of its Solana Pay payment request."
+          ],
+          "optional": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
@@ -569,18 +1102,85 @@ export type Fundraiser = {
         242,
         212
       ]
+    }
+  ],
+  "events": [
+    {
+      "name": "campaignCreated",
+      "discriminator": [
+        9,
+        98,
+        69,
+        61,
+        53,
+        131,
+        64,
+        152
+      ]
     },
     {
-      "name": "verification",
+      "name": "cancelled",
       "discriminator": [
-        230,
+        136,
+        23,
+        42,
+        65,
+        143,
+        233,
+        234,
+        46
+      ]
+    },
+    {
+      "name": "contributed",
+      "discriminator": [
+        196,
+        199,
+        157,
+        136,
+        180,
+        222,
+        100,
+        118
+      ]
+    },
+    {
+      "name": "recipientUpdated",
+      "discriminator": [
         33,
-        140,
-        88,
-        132,
-        240,
-        116,
-        178
+        28,
+        22,
+        205,
+        175,
+        9,
+        165,
+        73
+      ]
+    },
+    {
+      "name": "refunded",
+      "discriminator": [
+        35,
+        103,
+        149,
+        246,
+        196,
+        123,
+        221,
+        99
+      ]
+    },
+    {
+      "name": "withdrawn",
+      "discriminator": [
+        20,
+        89,
+        223,
+        198,
+        194,
+        124,
+        219,
+        13
       ]
     }
   ],
@@ -642,70 +1242,91 @@ export type Fundraiser = {
     },
     {
       "code": 6011,
-      "name": "insufficientCampaignBalance",
-      "msg": "Campaign balance would drop below its rent-exempt reserve"
-    },
-    {
-      "code": 6012,
       "name": "campaignNotSettled",
       "msg": "Campaign can only be closed after a withdrawal or after every contribution was refunded"
     },
     {
-      "code": 6013,
+      "code": 6012,
       "name": "inviteRequired",
       "msg": "This campaign is private: contributing requires the organizer's invite link"
     },
     {
-      "code": 6014,
+      "code": 6013,
       "name": "invalidInvite",
       "msg": "This invite does not belong to this campaign"
     },
     {
-      "code": 6015,
+      "code": 6014,
       "name": "nicknameTooLong",
       "msg": "Nickname must be at most 32 bytes"
     },
     {
-      "code": 6016,
+      "code": 6015,
       "name": "tooManyTags",
       "msg": "A campaign can have at most 5 tags"
     },
     {
-      "code": 6017,
-      "name": "kycRequired",
-      "msg": "Opening a public campaign requires a verified identity"
-    },
-    {
-      "code": 6018,
-      "name": "notVerifier",
-      "msg": "Only the KYC verifier can verify an identity"
-    },
-    {
-      "code": 6019,
+      "code": 6016,
       "name": "descriptionTooLong",
-      "msg": "Description must be at most 500 bytes"
+      "msg": "Description must be at most 300 bytes"
     },
     {
-      "code": 6020,
+      "code": 6017,
       "name": "imageUrlTooLong",
       "msg": "Image link must be at most 200 bytes"
     },
     {
-      "code": 6021,
+      "code": 6018,
       "name": "invalidImageUrl",
       "msg": "Image link must be empty or start with https://"
+    },
+    {
+      "code": 6019,
+      "name": "wrongMint",
+      "msg": "This program only accepts the configured USDC mint"
+    },
+    {
+      "code": 6020,
+      "name": "notOrganizer",
+      "msg": "Only the organizer of this campaign can do this"
+    },
+    {
+      "code": 6021,
+      "name": "campaignNotActive",
+      "msg": "The campaign is no longer taking changes"
+    },
+    {
+      "code": 6022,
+      "name": "recipientLocked",
+      "msg": "The recipient is locked once anyone has contributed"
+    },
+    {
+      "code": 6023,
+      "name": "invalidRecipient",
+      "msg": "The recipient must be a real address"
+    },
+    {
+      "code": 6024,
+      "name": "recipientChanged",
+      "msg": "The recipient changed since you looked; check the campaign again"
+    },
+    {
+      "code": 6025,
+      "name": "campaignCancelled",
+      "msg": "The campaign was cancelled; contributors can take their money back"
     }
   ],
   "types": [
     {
       "name": "campaign",
       "docs": [
-        "One fundraiser. This account is program-owned and *is* the escrow: the",
-        "contributed lamports live here, so no human key can move them.",
+        "One fundraiser. The money is not held here: it sits in this campaign's",
+        "vault, its associated token account for `mint`, which only this program",
+        "can move -- to the recipient on success, or back to each contributor.",
         "",
-        "Invariant on the lamport balance:",
-        "balance == rent_exempt_reserve + (total_raised - total_refunded)",
-        "or, after a successful withdrawal, just `rent_exempt_reserve`."
+        "Fixed-size fields come first so they sit at fixed offsets for",
+        "`getProgramAccounts` memcmp filters:",
+        "organizer 8, recipient 40, mint 72, campaign_id 104, status 112."
       ],
       "type": {
         "kind": "struct",
@@ -713,14 +1334,22 @@ export type Fundraiser = {
           {
             "name": "organizer",
             "docs": [
-              "Created the campaign and pays its rent. Holds no power over the funds."
+              "Created the campaign and pays its rent. Can change the recipient only",
+              "while nothing has been raised, and has no power over the money."
             ],
             "type": "pubkey"
           },
           {
             "name": "recipient",
             "docs": [
-              "The only key that may withdraw on success. Set at creation, never changed."
+              "Where the pot goes on success. Locked by the first contribution."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "docs": [
+              "The token this campaign raises: always the configured `USDC_MINT`."
             ],
             "type": "pubkey"
           },
@@ -732,6 +1361,14 @@ export type Fundraiser = {
             "type": "u64"
           },
           {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "campaignStatus"
+              }
+            }
+          },
+          {
             "name": "title",
             "docs": [
               "Human-readable name, at most `MAX_TITLE_LEN` bytes."
@@ -741,14 +1378,14 @@ export type Fundraiser = {
           {
             "name": "goal",
             "docs": [
-              "Target in lamports. Reaching it is what unlocks `withdraw`."
+              "Target in the mint's base units. Reaching it is what unlocks `withdraw`."
             ],
             "type": "u64"
           },
           {
             "name": "deadline",
             "docs": [
-              "Unix timestamp. Before it: only `contribute`. After it: only `withdraw` or `refund`."
+              "Unix timestamp after which no more contributions are accepted."
             ],
             "type": "i64"
           },
@@ -765,13 +1402,6 @@ export type Fundraiser = {
               "Sum of every refund ever paid out."
             ],
             "type": "u64"
-          },
-          {
-            "name": "withdrawn",
-            "docs": [
-              "Set once by `withdraw`; makes a second withdrawal impossible."
-            ],
-            "type": "bool"
           },
           {
             "name": "invite",
@@ -820,6 +1450,129 @@ export type Fundraiser = {
       }
     },
     {
+      "name": "campaignCreated",
+      "docs": [
+        "Emitted by `create_campaign`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "organizer",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "goal",
+            "type": "u64"
+          },
+          {
+            "name": "deadline",
+            "type": "i64"
+          },
+          {
+            "name": "private",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "campaignStatus",
+      "docs": [
+        "Where a campaign is in its life. Stored, not derived, so every rule can",
+        "check it directly and the app can filter on it."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "active"
+          },
+          {
+            "name": "succeeded"
+          },
+          {
+            "name": "withdrawn"
+          },
+          {
+            "name": "cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cancelled",
+      "docs": [
+        "Emitted by `cancel`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "totalRaised",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "contributed",
+      "docs": [
+        "Emitted by `contribute`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "contributor",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "contributorTotal",
+            "docs": [
+              "This contributor's running total in the campaign."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "totalRaised",
+            "type": "u64"
+          },
+          {
+            "name": "goalReached",
+            "docs": [
+              "True when this contribution reached the goal (status became Succeeded)."
+            ],
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
       "name": "contribution",
       "docs": [
         "One contributor's running total for one campaign. Its existence is the",
@@ -861,25 +1614,89 @@ export type Fundraiser = {
       }
     },
     {
-      "name": "verification",
+      "name": "recipientUpdated",
       "docs": [
-        "Proof that `KYC_VERIFIER` checked this wallet's owner. Required to open a",
-        "public campaign. Holds no personal data: only who was verified and when."
+        "Emitted by `update_recipient`, which is only possible before anyone has",
+        "contributed."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "wallet",
+            "name": "campaign",
             "type": "pubkey"
           },
           {
-            "name": "verifiedAt",
-            "type": "i64"
+            "name": "oldRecipient",
+            "type": "pubkey"
           },
           {
-            "name": "bump",
-            "type": "u8"
+            "name": "newRecipient",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "refunded",
+      "docs": [
+        "Emitted by `refund`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "contributor",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "totalRefunded",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "withdrawn",
+      "docs": [
+        "Emitted by `withdraw`. `caller` is whoever triggered it; the money always",
+        "goes to `recipient`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "caller",
+            "type": "pubkey"
+          },
+          {
+            "name": "reference",
+            "docs": [
+              "The Solana Pay reference key, if one was passed."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
           }
         ]
       }
@@ -903,26 +1720,22 @@ export type Fundraiser = {
       "value": "[99, 111, 110, 116, 114, 105, 98, 117, 116, 105, 111, 110]"
     },
     {
-      "name": "kycVerifier",
+      "name": "usdcDecimals",
       "docs": [
-        "The only key allowed to mark a wallet as identity-verified.",
-        "",
-        "DEMO ONLY: this is derived from the public seed",
-        "sha256(\"chip-in:demo-kyc-verifier:v1\"), so anyone can act as this",
-        "verifier. The on-chain check is real; the identity check behind it is a",
-        "mock. For production, replace this with the key of a real KYC provider",
-        "that signs only after checking documents on its own server."
+        "USDC has 6 decimals on every cluster; `transfer_checked` verifies it."
       ],
-      "type": "pubkey",
-      "value": "6heuxcXmpLasM5dYeoFFFAXnhGLKLZNG4mPGFMZfqX3z"
+      "type": "u8",
+      "value": "6"
     },
     {
-      "name": "verificationSeed",
+      "name": "usdcMint",
       "docs": [
-        "PDA seed prefix for `Verification` accounts."
+        "LOCALNET / TESTS ONLY: a stand-in \"USDC\" mint whose address comes from the",
+        "public seed sha256(\"chip-in:localnet-test-usdc:v1\"), so tests and the local",
+        "seed script can create it at exactly this address. Worthless by design."
       ],
-      "type": "bytes",
-      "value": "[118, 101, 114, 105, 102, 105, 99, 97, 116, 105, 111, 110]"
+      "type": "pubkey",
+      "value": "BSMC8D2tMSKrz5HFsNKJmAHDDsocVD5MypWD9podcoUe"
     }
   ]
 };

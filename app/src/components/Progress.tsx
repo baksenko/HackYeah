@@ -1,5 +1,5 @@
 import type { Campaign } from '../lib/campaign'
-import { formatSol } from '../lib/format'
+import { formatUsdc } from '../lib/format'
 import { progressRatio } from '../lib/campaign'
 
 export function Progress({ campaign }: { campaign: Campaign }) {
@@ -16,7 +16,7 @@ export function Progress({ campaign }: { campaign: Campaign }) {
       </div>
       <div className="progress-labels">
         <span>
-          <strong>{formatSol(campaign.totalRaised)}</strong> of {formatSol(campaign.goal)}
+          <strong>{formatUsdc(campaign.totalRaised)}</strong> of {formatUsdc(campaign.goal)}
         </span>
         <span>{percent}%</span>
       </div>

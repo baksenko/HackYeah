@@ -1,70 +1,113 @@
 use anchor_lang::prelude::*;
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{self, Mint, Token, TokenAccount, TransferChecked},
+};
 
-use crate::{constants::*, error::FundraiserError, state::Campaign};
+use crate::{
+    constants::*,
+    error::FundraiserError,
+    events::Withdrawn,
+    state::{Campaign, CampaignStatus},
+};
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
-    /// Must be the `recipient` recorded at creation. The constraint below is
-    /// the whole guarantee: no other key can sign this instruction into
-    /// success, whatever a frontend chooses to offer.
+    /// Anyone. Withdrawing is permissionless: whoever calls it, the money can
+    /// only go to the stored recipient. The caller pays the transaction fee
+    /// and, if needed, the rent to open the recipient's token account.
     #[account(mut)]
-    pub recipient: Signer<'info>,
+    pub caller: Signer<'info>,
 
     #[account(
         mut,
         seeds = [CAMPAIGN_SEED, campaign.organizer.as_ref(), &campaign.campaign_id.to_le_bytes()],
         bump = campaign.bump,
-        constraint = campaign.recipient == recipient.key() @ FundraiserError::NotRecipient,
+        has_one = recipient @ FundraiserError::NotRecipient,
+        has_one = mint @ FundraiserError::WrongMint,
     )]
     pub campaign: Account<'info, Campaign>,
+
+    /// CHECK: pinned to `campaign.recipient` by `has_one`; used only as the
+    /// owner of the token account the money goes to. Never signs.
+    pub recipient: UncheckedAccount<'info>,
+
+    pub mint: Account<'info, Mint>,
+
+    #[account(
+        mut,
+        associated_token::mint = mint,
+        associated_token::authority = campaign,
+        associated_token::token_program = token_program,
+    )]
+    pub vault: Account<'info, TokenAccount>,
+
+    /// The recipient's own associated token account, opened here if it does
+    /// not exist yet, so a payout can never be blocked by a missing account.
+    #[account(
+        init_if_needed,
+        payer = caller,
+        associated_token::mint = mint,
+        associated_token::authority = recipient,
+        associated_token::token_program = token_program,
+    )]
+    pub recipient_token: Account<'info, TokenAccount>,
+
+    /// CHECK: optional, read-only and never used by the program. It only
+    /// appears in the transaction so a store can find this payout by the
+    /// reference key of its Solana Pay payment request.
+    pub reference: Option<UncheckedAccount<'info>>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
 }
 
-/// Pays the whole pot to the recipient, but only once the deadline has passed
-/// and only if the goal was actually reached.
+/// Pays the whole vault to the recipient once the goal has been reached --
+/// possibly before the deadline. Possible exactly once.
 pub fn handle_withdraw(ctx: Context<Withdraw>) -> Result<()> {
-    let now = Clock::get()?.unix_timestamp;
-
-    {
-        let campaign = &ctx.accounts.campaign;
-        require!(!campaign.withdrawn, FundraiserError::AlreadyWithdrawn);
-        // Checked before the goal, so an early attempt reports the honest
-        // reason it failed: the deadline is not here yet.
-        require!(
-            now >= campaign.deadline,
-            FundraiserError::DeadlineNotReached
-        );
-        require!(
-            campaign.total_raised >= campaign.goal,
-            FundraiserError::GoalNotReached
-        );
+    match ctx.accounts.campaign.status {
+        CampaignStatus::Succeeded => {}
+        CampaignStatus::Active => return err!(FundraiserError::GoalNotReached),
+        CampaignStatus::Withdrawn => return err!(FundraiserError::AlreadyWithdrawn),
+        CampaignStatus::Cancelled => return err!(FundraiserError::CampaignCancelled),
     }
 
-    // On the success path no refund can have happened, so the payout is the
-    // full amount raised.
-    let amount = ctx.accounts.campaign.total_raised;
-    ctx.accounts.campaign.withdrawn = true;
+    // The full vault: every contribution, plus anything sent to it directly.
+    let amount = ctx.accounts.vault.amount;
+    let campaign = &ctx.accounts.campaign;
+    let id_bytes = campaign.campaign_id.to_le_bytes();
+    let seeds: &[&[u8]] = &[
+        CAMPAIGN_SEED,
+        campaign.organizer.as_ref(),
+        &id_bytes,
+        &[campaign.bump],
+    ];
 
-    let campaign_ai = ctx.accounts.campaign.to_account_info();
-    let recipient_ai = ctx.accounts.recipient.to_account_info();
+    token::transfer_checked(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.key(),
+            TransferChecked {
+                from: ctx.accounts.vault.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+                to: ctx.accounts.recipient_token.to_account_info(),
+                authority: ctx.accounts.campaign.to_account_info(),
+            },
+            &[seeds],
+        ),
+        amount,
+        ctx.accounts.mint.decimals,
+    )?;
 
-    // The rent-exempt reserve belongs to whoever paid it and is never part of
-    // the pot; paying it out would delete the campaign's own record.
-    let reserve = Rent::get()?.minimum_balance(campaign_ai.data_len());
-    let remaining = campaign_ai
-        .lamports()
-        .checked_sub(amount)
-        .ok_or(FundraiserError::MathOverflow)?;
-    require!(
-        remaining >= reserve,
-        FundraiserError::InsufficientCampaignBalance
-    );
+    let campaign = &mut ctx.accounts.campaign;
+    campaign.status = CampaignStatus::Withdrawn;
 
-    **campaign_ai.try_borrow_mut_lamports()? = remaining;
-    **recipient_ai.try_borrow_mut_lamports()? = recipient_ai
-        .lamports()
-        .checked_add(amount)
-        .ok_or(FundraiserError::MathOverflow)?;
-
-    msg!("Withdrew {} lamports to the recipient", amount);
+    emit!(Withdrawn {
+        campaign: campaign.key(),
+        recipient: campaign.recipient,
+        amount,
+        caller: ctx.accounts.caller.key(),
+        reference: ctx.accounts.reference.as_ref().map(|r| r.key()),
+    });
     Ok(())
 }

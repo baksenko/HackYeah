@@ -1,9 +1,11 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 
 use crate::{
     constants::*,
     error::FundraiserError,
-    state::{Campaign, Contribution},
+    events::Contributed,
+    state::{Campaign, CampaignStatus, Contribution},
 };
 
 #[derive(Accounts)]
@@ -28,18 +30,51 @@ pub struct Contribute<'info> {
     )]
     pub contribution: Account<'info, Contribution>,
 
+    /// The campaign's own mint (always USDC_MINT); needed by transfer_checked.
+    #[account(address = campaign.mint @ FundraiserError::WrongMint)]
+    pub mint: Account<'info, Mint>,
+
+    /// Where the money comes from: the contributor's own token account for
+    /// this mint.
+    #[account(
+        mut,
+        token::mint = mint,
+        token::authority = contributor,
+        token::token_program = token_program,
+    )]
+    pub contributor_token: Account<'info, TokenAccount>,
+
+    /// Where the money goes: this campaign's vault and nothing else.
+    #[account(
+        mut,
+        associated_token::mint = mint,
+        associated_token::authority = campaign,
+        associated_token::token_program = token_program,
+    )]
+    pub vault: Account<'info, TokenAccount>,
+
     /// Only for private campaigns: the invite key from the organizer's share
     /// link, co-signing to prove the contributor actually holds that link.
     pub invite: Option<Signer<'info>>,
 
+    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 
-/// Anyone may contribute while the campaign is open. The lamports go straight
-/// into the program-owned `Campaign` account, so from this moment on no
-/// private key -- including the organizer's -- can move them except through
-/// `withdraw` or `refund`.
-pub fn handle_contribute(ctx: Context<Contribute>, amount: u64, nickname: String) -> Result<()> {
+/// Anyone may contribute while the campaign is Active and before its
+/// deadline. The tokens move straight into the campaign's vault, so from this
+/// moment on no private key -- including the organizer's -- can move them
+/// except through `withdraw` (to the recipient) or `refund` (back here).
+///
+/// `expected_recipient` is the recipient the contributor saw. If the organizer
+/// changed it in the meantime the contribution is refused, so nobody ever
+/// pays into a campaign for someone other than who they meant.
+pub fn handle_contribute(
+    ctx: Context<Contribute>,
+    amount: u64,
+    nickname: String,
+    expected_recipient: Pubkey,
+) -> Result<()> {
     require!(amount > 0, FundraiserError::InvalidAmount);
     require!(
         nickname.len() <= MAX_NICKNAME_LEN,
@@ -58,20 +93,34 @@ pub fn handle_contribute(ctx: Context<Contribute>, amount: u64, nickname: String
         require_keys_eq!(invite.key(), expected, FundraiserError::InvalidInvite);
     }
 
-    let now = Clock::get()?.unix_timestamp;
-    require!(
-        now < ctx.accounts.campaign.deadline,
-        FundraiserError::DeadlinePassed
-    );
+    {
+        let campaign = &ctx.accounts.campaign;
+        // Once the goal is met the campaign is Succeeded and stops taking money.
+        require!(
+            campaign.status == CampaignStatus::Active,
+            FundraiserError::CampaignNotActive
+        );
+        let now = Clock::get()?.unix_timestamp;
+        require!(now < campaign.deadline, FundraiserError::DeadlinePassed);
+        require_keys_eq!(
+            campaign.recipient,
+            expected_recipient,
+            FundraiserError::RecipientChanged
+        );
+    }
 
-    // Overfunding past the goal stays allowed until the deadline.
-    let cpi_accounts = anchor_lang::system_program::Transfer {
-        from: ctx.accounts.contributor.to_account_info(),
-        to: ctx.accounts.campaign.to_account_info(),
-    };
-    anchor_lang::system_program::transfer(
-        CpiContext::new(anchor_lang::system_program::ID, cpi_accounts),
+    token::transfer_checked(
+        CpiContext::new(
+            ctx.accounts.token_program.key(),
+            TransferChecked {
+                from: ctx.accounts.contributor_token.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+                to: ctx.accounts.vault.to_account_info(),
+                authority: ctx.accounts.contributor.to_account_info(),
+            },
+        ),
         amount,
+        ctx.accounts.mint.decimals,
     )?;
 
     let campaign_key = ctx.accounts.campaign.key();
@@ -82,6 +131,10 @@ pub fn handle_contribute(ctx: Context<Contribute>, amount: u64, nickname: String
         .total_raised
         .checked_add(amount)
         .ok_or(FundraiserError::MathOverflow)?;
+    let goal_reached = campaign.total_raised >= campaign.goal;
+    if goal_reached {
+        campaign.status = CampaignStatus::Succeeded;
+    }
 
     let contribution = &mut ctx.accounts.contribution;
     contribution.campaign = campaign_key;
@@ -96,10 +149,13 @@ pub fn handle_contribute(ctx: Context<Contribute>, amount: u64, nickname: String
         contribution.nickname = nickname;
     }
 
-    msg!(
-        "Contributed {} lamports; campaign total is now {}",
+    emit!(Contributed {
+        campaign: campaign_key,
+        contributor: contributor_key,
         amount,
-        campaign.total_raised
-    );
+        contributor_total: contribution.amount,
+        total_raised: campaign.total_raised,
+        goal_reached,
+    });
     Ok(())
 }

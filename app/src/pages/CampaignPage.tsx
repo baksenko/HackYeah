@@ -1,7 +1,7 @@
 import { BN } from '@coral-xyz/anchor'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
-import { Keypair, PublicKey, SystemProgram, type Transaction } from '@solana/web3.js'
+import { Keypair, PublicKey, type Transaction } from '@solana/web3.js'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 
@@ -16,16 +16,17 @@ import { TxResult } from '../components/TxResult'
 import {
   campaignStatus,
   isPrivate,
-  fetchCampaign,
-  fetchContributions,
+  refundsOpen,
   secondsLeft,
   type Campaign,
   type Contribution,
 } from '../lib/campaign'
+import { buildContributeTransaction } from '../lib/actions'
 import { CLUSTER_LABEL } from '../lib/cluster'
 import { PERMISSIONS, whatCanHappenNow } from '../lib/explain'
-import { CONTRIBUTION_ACCOUNT_SPACE, accountDeposit, networkFee } from '../lib/fees'
-import { formatCountdown, formatDateTime, formatSol, shortKey, solToLamports } from '../lib/format'
+import { CONTRIBUTION_ACCOUNT_SPACE, TOKEN_ACCOUNT_SPACE, accountDeposit, networkFee } from '../lib/fees'
+import { formatCountdown, formatDateTime, formatUsdc, parseUsdc } from '../lib/format'
+import { useCampaignIndex } from '../lib/indexer'
 import { buildLeaderboard } from '../lib/leaderboard'
 import {
   inviteFromHash,
@@ -34,7 +35,8 @@ import {
   rememberInvite,
   rememberNickname,
 } from '../lib/invite'
-import { contributionPda, useProgram } from '../lib/program'
+import { USDC_MINT, contributionPda, tokenAccountOf, useProgram, vaultOf } from '../lib/program'
+import { recallReference } from '../lib/solanaPay'
 import { decodeTags } from '../lib/tags'
 import { sendTransaction, type TxOutcome } from '../lib/send'
 import { useChainClock } from '../lib/useChainClock'
@@ -61,6 +63,7 @@ const neverSent = (error: unknown): TxOutcome => ({
 export function CampaignPage() {
   const { address } = useParams<{ address: string }>()
   const program = useProgram()
+  const index = useCampaignIndex()
   const { connection } = useConnection()
   const wallet = useWallet()
   const now = useChainClock()
@@ -70,7 +73,7 @@ export function CampaignPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [outcome, setOutcome] = useState<TxOutcome | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const [amount, setAmount] = useState('0.1')
+  const [amount, setAmount] = useState('10')
   const [amountError, setAmountError] = useState<string | null>(null)
   const [nickname, setNickname] = useState(recallNickname)
   const [pending, setPending] = useState<Pending | null>(null)
@@ -88,16 +91,17 @@ export function CampaignPage() {
     if (!campaignKey) return
     try {
       setLoadError(null)
-      const [next, contribs] = await Promise.all([
-        fetchCampaign(program, campaignKey),
-        fetchContributions(program, campaignKey),
-      ])
+      const [next, contribs] = await Promise.all([index.campaign(campaignKey), index.contributionsTo(campaignKey)])
+      if (!next) {
+        setLoadError(`No campaign exists at this address on the ${CLUSTER_LABEL}.`)
+        return
+      }
       setCampaign(next)
       setContributions(contribs)
     } catch {
-      setLoadError(`No campaign exists at this address on the ${CLUSTER_LABEL}.`)
+      setLoadError(`Could not read this campaign from the ${CLUSTER_LABEL}. Check your connection and refresh.`)
     }
-  }, [program, campaignKey])
+  }, [index, campaignKey])
 
   useEffect(() => {
     void load()
@@ -145,7 +149,7 @@ export function CampaignPage() {
   async function review(
     key: string,
     build: () => Promise<Transaction>,
-    describe: (fee: number) => Promise<ReviewView>,
+    describe: (networkFeeLamports: number) => Promise<ReviewView>,
     options: SendOptions = {},
   ) {
     if (!me) return
@@ -153,8 +157,8 @@ export function CampaignPage() {
     setBusy(key)
     try {
       const transaction = await build()
-      const fee = await networkFee(connection, transaction, me)
-      setPending({ key, transaction, options, view: await describe(fee) })
+      const networkFeeLamports = await networkFee(connection, transaction, me)
+      setPending({ key, transaction, options, view: await describe(networkFeeLamports) })
     } catch (error) {
       setOutcome(neverSent(error))
     } finally {
@@ -189,9 +193,9 @@ export function CampaignPage() {
     busy === key ? (pending ? 'Sending…' : 'Preparing…') : idle
 
   const campaignAddress = campaign.address.toBase58()
-  const recipientAddress = campaign.recipient.toBase58()
+  const recipientKey = campaign.recipient
+  const recipientAddress = recipientKey.toBase58()
   const deadline = campaign.deadline.toNumber()
-  const totalRaised = Number(campaign.totalRaised.toString())
 
   // This campaign's own leaderboard: the same ranking as the global one,
   // counting only this campaign's receipts. Refunded receipts are gone already.
@@ -200,26 +204,56 @@ export function CampaignPage() {
   const sharePercent = (amount: BN) =>
     stillHeld.isZero() ? '—' : `${Math.round((Number(amount.toString()) / Number(stillHeld.toString())) * 100)}%`
 
+  const vault = vaultOf(campaign.address)
+  const fee = (amount: number) => ({ label: 'Network fee', asset: 'sol' as const, amount, direction: 'out' as const })
+  /** The SOL deposit to open someone's USDC account, if it does not exist yet. */
+  const openingDeposit = async (owner: PublicKey, label: string) =>
+    (await connection.getAccountInfo(tokenAccountOf(owner)))
+      ? []
+      : [
+          {
+            label,
+            asset: 'sol' as const,
+            amount: await accountDeposit(connection, TOKEN_ACCOUNT_SPACE),
+            direction: 'out' as const,
+            note: 'A one-time deposit to open a USDC account. It belongs to that account, not to the campaign.',
+          },
+        ]
+
   /**
    * `withInvite: false` deliberately leaves the invite out even when this
    * browser has one — that is how the demo proves the program checks it.
+   * `expected_recipient` is the recipient this page shows: if the organizer
+   * changed it since the page loaded, the program refuses the contribution.
    */
-  const buildContribute = async (lamports: BN, withInvite = true) =>
-    program.methods
-      .contribute(lamports, nickname.trim())
-      .accountsPartial({
-        contributor: me!,
-        campaign: campaign.address,
-        contribution: contributionPda(campaign.address, me!),
-        invite: withInvite && invite ? invite.publicKey : null,
-        systemProgram: SystemProgram.programId,
-      })
-      .transaction()
+  const buildContribute = async (units: BN, withInvite = true) =>
+    buildContributeTransaction(program, {
+      campaign: campaign.address,
+      expectedRecipient: campaign.recipient,
+      contributor: me!,
+      amount: units,
+      nickname: nickname.trim(),
+      invite: withInvite && invite ? invite.publicKey : null,
+    })
 
-  const buildWithdraw = async () =>
+  /**
+   * Permissionless: whoever signs, the money only ever goes to the stored
+   * recipient. Only a real payout carries the Solana Pay reference -- the demo
+   * must not show up in a store's search for its payment.
+   */
+  const buildWithdraw = async (withReference = true) =>
     program.methods
       .withdraw()
-      .accountsPartial({ recipient: me!, campaign: campaign.address })
+      .accountsPartial({
+        caller: me!,
+        campaign: campaign.address,
+        recipient: campaign.recipient,
+        mint: USDC_MINT,
+        vault,
+        recipientToken: tokenAccountOf(campaign.recipient),
+        // Attached when this browser created the campaign from a Solana Pay link.
+        reference: withReference ? recallReference(campaign.address) : null,
+      })
       .transaction()
 
   const buildRefund = async () =>
@@ -229,14 +263,20 @@ export function CampaignPage() {
         contributor: me!,
         campaign: campaign.address,
         contribution: contributionPda(campaign.address, me!),
+        mint: USDC_MINT,
+        vault,
+        contributorToken: tokenAccountOf(me!),
       })
       .transaction()
 
+  const buildCancel = async () =>
+    program.methods.cancel().accountsPartial({ organizer: me!, campaign: campaign.address }).transaction()
+
   function onContribute() {
     setAmountError(null)
-    let lamports: BN
+    let units: BN
     try {
-      lamports = solToLamports(amount)
+      units = parseUsdc(amount)
     } catch (e) {
       setAmountError(e instanceof Error ? e.message : 'Enter a valid amount.')
       return
@@ -245,12 +285,10 @@ export function CampaignPage() {
     if (name) rememberNickname(name)
     void review(
       'contribute',
-      () => buildContribute(lamports),
-      async (fee) => {
+      () => buildContribute(units),
+      async (networkCost) => {
         // The receipt account is created on a first contribution only.
-        const deposit = myContribution
-          ? 0
-          : await accountDeposit(connection, CONTRIBUTION_ACCOUNT_SPACE)
+        const deposit = myContribution ? 0 : await accountDeposit(connection, CONTRIBUTION_ACCOUNT_SPACE)
         return {
           heading: 'Review your contribution',
           parties: [
@@ -258,28 +296,29 @@ export function CampaignPage() {
             { label: 'Paid out to this recipient if the goal is reached', address: recipientAddress },
           ],
           lines: [
-            { label: 'Your contribution', lamports: Number(lamports.toString()), direction: 'out' },
+            { label: 'Your contribution', asset: 'usdc', amount: Number(units.toString()), direction: 'out' },
             ...(deposit
               ? [
                   {
                     label: 'One-time receipt deposit',
-                    lamports: deposit,
+                    asset: 'sol' as const,
+                    amount: deposit,
                     direction: 'out' as const,
                     note: 'Returned with your refund if the goal is missed. If the goal is reached it stays locked on chain for good.',
                   },
                 ]
               : []),
-            { label: 'Network fee', lamports: fee, direction: 'out' },
+            fee(networkCost),
           ],
           facts: [
             'You cannot take this back while the campaign is open, even if you change your mind.',
-            `If the goal is missed by ${formatDateTime(deadline)}, you can reclaim exactly this amount.`,
+            `If the goal is missed by ${formatDateTime(deadline)}, or the organizer cancels, you can take back exactly this amount.`,
             'If the goal is reached, it goes to the recipient above and cannot be refunded.',
             name
               ? `The group will see you as “${name}”. Your wallet address is public either way.`
               : 'The group will see your wallet address.',
           ],
-          confirmLabel: `Confirm and contribute ${formatSol(lamports)}`,
+          confirmLabel: `Confirm and contribute ${formatUsdc(units)}`,
         }
       },
       { extraSigners: invite ? [invite] : [] },
@@ -287,27 +326,39 @@ export function CampaignPage() {
   }
 
   function onWithdraw() {
-    void review('withdraw', buildWithdraw, async (fee) => ({
-      heading: 'Review your withdrawal',
-      parties: [
-        { label: 'Paid from this campaign account', address: campaignAddress },
-        { label: 'To your wallet', address: me!.toBase58() },
-      ],
-      lines: [
-        { label: 'Payout', lamports: totalRaised, direction: 'in' },
-        { label: 'Network fee', lamports: fee, direction: 'out' },
-      ],
-      facts: [
-        'This is final. The program records the withdrawal and refuses a second one.',
-        'Once it reaches your wallet, nobody can reverse it.',
-      ],
-      confirmLabel: 'Confirm and withdraw',
-    }))
+    void review('withdraw', () => buildWithdraw(), async (networkCost) => {
+      // The payout is the whole vault, read from chain.
+      const held = BigInt((await connection.getTokenAccountBalance(vault, 'confirmed')).value.amount)
+      return {
+        heading: 'Review: send the money to the recipient',
+        parties: [
+          { label: 'Paid from this campaign account', address: campaignAddress },
+          {
+            label: isRecipient ? 'To you, the recipient' : 'To the recipient — and nobody else',
+            address: recipientAddress,
+          },
+        ],
+        lines: [
+          ...(isRecipient
+            ? [{ label: 'Payout to you', asset: 'usdc' as const, amount: Number(held), direction: 'in' as const }]
+            : []),
+          ...(await openingDeposit(recipientKey, "Opening the recipient's USDC account")),
+          fee(networkCost),
+        ],
+        facts: [
+          isRecipient
+            ? `${formatUsdc(held)} comes to you.`
+            : `${formatUsdc(held)} goes to the recipient above. You pay only the network fee; none of the money passes through your wallet.`,
+          'This is final. The program records the payout and refuses a second one.',
+        ],
+        confirmLabel: `Send ${formatUsdc(held)} to the recipient`,
+      }
+    })
   }
 
   function onRefund() {
     if (!myContribution) return
-    void review('refund', buildRefund, async (fee) => {
+    void review('refund', buildRefund, async (networkCost) => {
       // Closing the receipt hands back whatever it holds: the deposit paid
       // when it was created.
       const receipt = await connection.getBalance(myContribution.address, 'confirmed')
@@ -318,33 +369,47 @@ export function CampaignPage() {
           { label: 'To your wallet', address: me!.toBase58() },
         ],
         lines: [
-          { label: 'Your contribution back', lamports: Number(myContribution.amount.toString()), direction: 'in' },
-          { label: 'Receipt deposit returned', lamports: receipt, direction: 'in' },
-          { label: 'Network fee', lamports: fee, direction: 'out' },
+          {
+            label: 'Your contribution back',
+            asset: 'usdc',
+            amount: Number(myContribution.amount.toString()),
+            direction: 'in',
+          },
+          { label: 'Receipt deposit returned', asset: 'sol', amount: receipt, direction: 'in' },
+          ...(await openingDeposit(me!, 'Reopening your USDC account')),
+          fee(networkCost),
         ],
         facts: ['Your receipt is deleted as it pays out, so a refund can only happen once.'],
-        confirmLabel: `Confirm and get ${formatSol(myContribution.amount)} back`,
+        confirmLabel: `Confirm and get ${formatUsdc(myContribution.amount)} back`,
       }
     })
+  }
+
+  function onCancel() {
+    void review('cancel', buildCancel, async (networkCost) => ({
+      heading: 'Review: cancel this campaign',
+      parties: [{ label: 'Cancelling this campaign', address: campaignAddress }],
+      lines: [fee(networkCost)],
+      facts: [
+        'This cannot be undone. The campaign stops taking contributions for good.',
+        'It moves no money. Every contributor can then take back exactly what they paid in, whenever they like.',
+        "Nobody — including you — can ever send this campaign's money to the recipient after this.",
+      ],
+      confirmLabel: 'Cancel the campaign',
+      danger: true,
+    }))
   }
 
   function onDemo() {
     void review(
       'demo',
-      buildWithdraw,
-      async (fee) => ({
-        heading: 'Review: early withdrawal attempt (demo)',
-        parties: [{ label: 'Trying to withdraw from this campaign account', address: campaignAddress }],
-        lines: [
-          {
-            label: 'Network fee',
-            lamports: fee,
-            direction: 'out',
-            note: 'Charged even though the program will reject the transaction.',
-          },
-        ],
+      () => buildWithdraw(false),
+      async (networkCost) => ({
+        heading: 'Review: paying out before the goal is reached (demo)',
+        parties: [{ label: 'Trying to pay out this campaign account', address: campaignAddress }],
+        lines: [{ ...fee(networkCost), note: 'Charged even though the program will reject the transaction.' }],
         facts: [
-          'The program will refuse this. No money moves except the fee.',
+          'The program will refuse this: the goal has not been reached. No money moves except the fee.',
           'You will get a link to the failed transaction as proof.',
         ],
         confirmLabel: 'Send it anyway',
@@ -357,20 +422,13 @@ export function CampaignPage() {
   function onInviteDemo() {
     void review(
       'demo-invite',
-      () => buildContribute(solToLamports('0.01'), false),
-      async (fee) => ({
+      () => buildContribute(parseUsdc('0.01'), false),
+      async (networkCost) => ({
         heading: 'Review: contributing without the invite (demo)',
         parties: [{ label: 'Trying to contribute to this campaign account', address: campaignAddress }],
-        lines: [
-          {
-            label: 'Network fee',
-            lamports: fee,
-            direction: 'out',
-            note: 'Charged even though the program will reject the transaction.',
-          },
-        ],
+        lines: [{ ...fee(networkCost), note: 'Charged even though the program will reject the transaction.' }],
         facts: [
-          'The program will refuse this because the invite key did not sign. The 0.01 SOL never leaves your wallet.',
+          'The program will refuse this because the invite key did not sign. The 0.01 USDC never leaves your wallet.',
           'You will get a link to the failed transaction as proof.',
         ],
         confirmLabel: 'Send it anyway',
@@ -431,13 +489,14 @@ export function CampaignPage() {
       <Progress campaign={campaign} />
 
       <p className="countdown">
-        {status === 'open' ? (
+        {status === 'open' && (
           <>
             Closes in <strong>{formatCountdown(left)}</strong> — {formatDateTime(deadline)}
           </>
-        ) : (
-          <>Closed on {formatDateTime(deadline)}</>
         )}
+        {(status === 'succeeded' || status === 'withdrawn') && <>The goal was reached.</>}
+        {status === 'failed' && <>Closed on {formatDateTime(deadline)} without reaching the goal.</>}
+        {status === 'cancelled' && <>Cancelled by the organizer.</>}
       </p>
 
       {wrongInvite && (
@@ -480,7 +539,7 @@ export function CampaignPage() {
             <div className="demo">
               <h3>Prove it to yourself</h3>
               <p>
-                This page is not what keeps you out. Try contributing 0.01 SOL without the invite —
+                This page is not what keeps you out. Try contributing 0.01 USDC without the invite —
                 the transaction really goes to the chain, and the program refuses it.
               </p>
               <button
@@ -508,7 +567,7 @@ export function CampaignPage() {
                 />
               </label>
               <label>
-                <span>Amount in SOL</span>
+                <span>Amount in USDC</span>
                 <input
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
@@ -527,7 +586,7 @@ export function CampaignPage() {
             {amountError && <p className="notice notice-error">{amountError}</p>}
             {myContribution && (
               <p className="aside">
-                You have already put in {formatSol(myContribution.amount)}. Contributing again adds
+                You have already put in {formatUsdc(myContribution.amount)}. Contributing again adds
                 to that.
               </p>
             )}
@@ -536,24 +595,21 @@ export function CampaignPage() {
 
         {wallet.connected && status === 'succeeded' && (
           <div className="actions">
-            {isRecipient ? (
-              <button
-                className="button button-primary"
-                onClick={onWithdraw}
-                disabled={busy !== null || pending !== null}
-              >
-                {buttonLabel('withdraw', `Withdraw ${formatSol(campaign.totalRaised)}`)}
-              </button>
-            ) : (
-              <p>
-                Waiting for {shortKey(recipientAddress)} to withdraw. Nobody else can do it for
-                them.
-              </p>
-            )}
+            <p>
+              The goal was reached. Anyone can now send the money to the recipient — it can only
+              ever go to them.
+            </p>
+            <button
+              className="button button-primary"
+              onClick={onWithdraw}
+              disabled={busy !== null || pending !== null}
+            >
+              {buttonLabel('withdraw', isRecipient ? 'Send the money to me' : 'Send the money to the recipient')}
+            </button>
           </div>
         )}
 
-        {wallet.connected && status === 'failed' && (
+        {wallet.connected && refundsOpen(status) && (
           <div className="actions">
             {myContribution ? (
               <button
@@ -561,10 +617,10 @@ export function CampaignPage() {
                 onClick={onRefund}
                 disabled={busy !== null || pending !== null}
               >
-                {buttonLabel('refund', `Get my money back (${formatSol(myContribution.amount)})`)}
+                {buttonLabel('refund', `Get my money back (${formatUsdc(myContribution.amount)})`)}
               </button>
             ) : (
-              <p>You did not contribute to this campaign, so there is nothing for you to reclaim.</p>
+              <p>You did not contribute to this campaign, so there is nothing for you to take back.</p>
             )}
           </div>
         )}
@@ -575,31 +631,47 @@ export function CampaignPage() {
 
         {reviewPanel}
 
+        {wallet.connected && status === 'open' && isOrganizer && (
+          <div className="actions">
+            <h3>Organizer</h3>
+            <p className="aside">
+              You can call this campaign off until its goal is reached. That only opens refunds — it
+              cannot move anyone&apos;s money.
+            </p>
+            <button
+              className="button button-danger"
+              onClick={onCancel}
+              disabled={busy !== null || pending !== null}
+            >
+              {buttonLabel('cancel', 'Cancel campaign')}
+            </button>
+          </div>
+        )}
+
         {/*
-          The demo that makes the point. On an open campaign the organizer and
-          the recipient are offered the withdrawal they are not yet entitled to.
-          It is sent with preflight simulation turned off, so it genuinely
-          lands on devnet and is genuinely rejected by the program. This button
-          is never disabled by a check in this file -- that is the whole idea.
+          The demo that makes the point. Anyone can trigger a payout -- but only
+          once the goal is reached. Sent with preflight simulation turned off, so
+          it genuinely lands on chain and is genuinely rejected by the program.
+          This button is never disabled by a check in this file -- that is the
+          whole idea.
         */}
-        {wallet.connected && status === 'open' && (isOrganizer || isRecipient) && (
+        {wallet.connected && status === 'open' && (
           <div className="demo">
             <h3>Prove it to yourself</h3>
             <p>
-              You organised this campaign, or the money is meant for you. Try taking it out right
-              now, before the deadline. This really sends the transaction to the chain — this page
-              will not stop you. The program will.
+              Anyone can send this campaign&apos;s money to the recipient — but only once the goal is
+              reached. Try it now, before then. This really sends the transaction to the chain —
+              this page will not stop you. The program will.
             </p>
             <button
               className="button button-danger"
               onClick={onDemo}
               disabled={busy !== null || pending !== null}
             >
-              {buttonLabel('demo', 'Try to withdraw early (demo)')}
+              {buttonLabel('demo', 'Try to pay out early (demo)')}
             </button>
             <p className="aside">
-              Costs a devnet transaction fee and will fail. You will get a link to the failed
-              transaction.
+              Costs a network fee and will fail. You will get a link to the failed transaction.
             </p>
           </div>
         )}
@@ -651,7 +723,7 @@ export function CampaignPage() {
                       </td>
                       <td className="right">{sharePercent(row.total)}</td>
                       <td className="right">
-                        <strong>{formatSol(row.total)}</strong>
+                        <strong>{formatUsdc(row.total)}</strong>
                       </td>
                     </tr>
                   )
@@ -667,7 +739,7 @@ export function CampaignPage() {
         )}
         {campaign.totalRefunded.gt(new BN(0)) && (
           <p className="aside">
-            {formatSol(campaign.totalRefunded)} has been reclaimed. A contributor disappears from
+            {formatUsdc(campaign.totalRefunded)} has been taken back. A contributor disappears from
             this list once they take their money back.
           </p>
         )}
@@ -697,6 +769,11 @@ export function CampaignPage() {
         </table>
         <p className="aside">
           Held on chain at <Address address={campaignAddress} explorer />
+        </p>
+        <p className="notice notice-blocked">
+          <strong>Don&apos;t send USDC straight to this address.</strong> Use Contribute above.
+          Money sent directly lands in the campaign without a receipt: it does not count toward
+          the goal, and if the goal is missed you cannot get it back.
         </p>
       </section>
     </article>

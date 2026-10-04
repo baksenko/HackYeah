@@ -1,24 +1,24 @@
 # Chip In — a group fundraiser with no middleman
 
-A group of friends pools money for a shared goal. The money sits in a Solana
-program that nobody controls. If the goal is reached by the deadline, only the
-person it was collected for can take it. If it isn't, every contributor takes
-back exactly what they put in. Nobody — not the organiser, not us — can change
-those rules once a campaign exists.
+A group of friends pools USDC for a shared goal. The money sits in a Solana
+program that nobody controls. Once the goal is reached, anyone can trigger the
+payout — and it can only go to the person it was collected for. If the goal
+is missed by the deadline, or the organiser calls it off first, every
+contributor takes back exactly what they put in. Nobody — not the organiser,
+not us — can bend those rules once a campaign exists.
 
 Built for the Superteam Poland "Finance Without Intermediaries" challenge.
 Devnet only. No real money.
 
-- **Program ID (devnet):** `DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7`
-- **Anchor** 1.2.0 · **solana-cli** 4.1.2 (Agave) · **rustc** 1.99.0
+- **Program ID:** `DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7` (declared in
+  `program/programs/fundraiser/src/lib.rs`)
+- **Anchor** 1.2.0 · **Agave** (solana-cli) 4.3.0 · program toolchain pinned in
+  `program/rust-toolchain.toml`
 
-> **Deployment status.** The program builds, passes its full test suite, and the
-> frontend has been verified end to end against a local validator. The devnet
-> deploy itself is still pending: the devnet faucet is rate-limiting this IP and
-> the deploy needs ~2.05 SOL of devnet SOL that we could not obtain. See
-> [Deploying to devnet](#deploying-to-devnet). The program ID above is fixed by
-> the keypair in `program/target/deploy/fundraiser-keypair.json` and will be the
-> address once deployed.
+> **Deployment status.** The program builds and passes its full test suite,
+> and the frontend has been driven end to end against a local validator. It is
+> **not deployed to devnet yet**: the devnet SOL needed for the deploy was not
+> available (faucet rate limits). See [Deploying to devnet](#deploying-to-devnet).
 
 ---
 
@@ -38,82 +38,107 @@ Their *promise* is the only thing standing between the contributors and their
 money. Everything else — the deadline, the target, "you'll get it back if we
 don't make it" — is a social convention, not a rule anything enforces.
 
-**Here.** The pot is a program-owned account. There is no key that can move the
-money, because no human holds that account. The money can leave it in exactly
-two ways, both written into the program:
+**Here.** The pot is the campaign's own USDC account (its *vault*), whose only
+authority is the program. No human key can move it. The money can leave it in
+exactly two ways, both written into the program:
 
 | | |
 |---|---|
-| Goal reached by the deadline | Only the recipient named at creation can withdraw |
-| Goal missed | Each contributor can reclaim their exact contribution |
+| Goal reached | Anyone can trigger the payout; it goes only to the recipient |
+| Goal missed by the deadline, or campaign cancelled | Each contributor takes back their exact contribution |
 
-The organiser is reduced to the person who filled in the form. They pay a tiny
-rent deposit to create the campaign and have no power over the money at all —
-not even if they also happen to be the recipient, since even then the deadline
-and goal still bind them.
+The organiser is reduced to the person who filled in the form. They pay the
+small deposits that open the campaign and its vault, can fix a mistyped
+recipient *before anyone contributes*, and can call the campaign off *before
+the goal is reached* — which only ever opens refunds. They can never take,
+redirect or freeze anyone's money.
 
 ### Target user
 
 Groups of friends, students, flatmates and small teams pooling money for a
 gift, a trip or a shared purchase. Mostly people with no interest in crypto.
-The UI never shows a lamport, never says "PDA", and names the actions in plain
-language: *Contribute*, *Get my money back*. Technical details appear only
-where they serve as proof — the Solana Explorer links.
+The UI never says "PDA" or "lamport", shows campaign money in USDC and fees
+in SOL, and names the actions in plain language: *Contribute*, *Send the money
+to the recipient*, *Get my money back*. Technical details appear only where
+they serve as proof — the Solana Explorer links.
+
+### Why USDC
+
+A pot that has to buy a 400 zł gift in three weeks cannot ride SOL's exchange
+rate. USDC keeps the goal meaning the same thing on the deadline as on day one.
+The program accepts exactly one mint, chosen at build time (see
+[Mint per cluster](#mint-per-cluster)).
 
 ---
 
 ## Where the intermediary disappears
 
-Every rule is a `require!` in the on-chain program. The frontend can offer any
+Every rule is a check in the on-chain program. The frontend can offer any
 button it likes; the program is what decides.
 
-### `withdraw` — only the recipient, only on success, only once
+### `withdraw` — anyone can trigger it, only the recipient can receive it
 `program/programs/fundraiser/src/instructions/withdraw.rs`
 
 ```rust
-// in the Accounts struct — the signer must BE the recipient
-constraint = campaign.recipient == recipient.key() @ FundraiserError::NotRecipient,
+// Accounts: the recipient is pinned to what the campaign stored...
+has_one = recipient @ FundraiserError::NotRecipient,
+// ...and the destination must be the recipient's own USDC account.
+associated_token::mint = mint,
+associated_token::authority = recipient,
 
-// in handle_withdraw
-require!(!campaign.withdrawn,                    FundraiserError::AlreadyWithdrawn);
-require!(now >= campaign.deadline,               FundraiserError::DeadlineNotReached);
-require!(campaign.total_raised >= campaign.goal, FundraiserError::GoalNotReached);
+// handle_withdraw: only once the goal is reached, and only once
+CampaignStatus::Active    => return err!(FundraiserError::GoalNotReached),
+CampaignStatus::Withdrawn => return err!(FundraiserError::AlreadyWithdrawn),
+CampaignStatus::Cancelled => return err!(FundraiserError::CampaignCancelled),
 ```
 
-`campaign.recipient` is written once in `create_campaign` and there is no
-instruction anywhere in the program that writes to it again. The money cannot
-be redirected, and the organiser cannot withdraw unless they *are* the
-recipient.
+Withdraw is **permissionless**: whoever calls it pays the fee, and the whole
+vault goes to the stored recipient — never to the caller. So the payout does
+not depend on any one person being around, and it can happen as soon as the
+goal is met, even before the deadline. It also accepts an optional read-only
+`reference` account that does nothing in the program; it only lets a store
+find the payout by its [Solana Pay](https://docs.solanapay.com/spec) reference.
 
 ### `refund` — each contributor, their own money, only on failure
 `program/programs/fundraiser/src/instructions/refund.rs`
 
 ```rust
-require!(now >= campaign.deadline,              FundraiserError::DeadlineNotReached);
-require!(campaign.total_raised < campaign.goal, FundraiserError::GoalReached);
+CampaignStatus::Cancelled => {}                         // refunds open at once
+CampaignStatus::Active    => require!(now >= campaign.deadline, DeadlineNotReached),
+CampaignStatus::Succeeded | CampaignStatus::Withdrawn => return err!(GoalReached),
 ```
 
-The amount paid out is `contribution.amount` — that contributor's own number,
-not a share of whatever is left. The `Contribution` PDA is seeded with
-`["contribution", campaign, contributor]`, so a contributor can only ever reach
-their own receipt. `close = contributor` deletes that receipt as it pays out,
-which is what makes a second refund impossible: the account the instruction
-needs no longer exists.
+The amount paid out is the contributor's own receipt, not a share of whatever
+is left. The receipt (`Contribution`) lives at `["contribution", campaign,
+contributor]`, so a contributor can only ever reach their own, and `close =
+contributor` deletes it as it pays out — which is what makes a second refund
+impossible. Refunds need nobody's permission and have no expiry.
 
-### `contribute` — anyone, but only while it is open
+### `contribute` — anyone, while it is open, to the recipient they saw
 `program/programs/fundraiser/src/instructions/contribute.rs`
 
 ```rust
-require!(amount > 0,                     FundraiserError::InvalidAmount);
-require!(now < ctx.accounts.campaign.deadline, FundraiserError::DeadlinePassed);
+require!(campaign.status == CampaignStatus::Active, FundraiserError::CampaignNotActive);
+require!(now < campaign.deadline,                   FundraiserError::DeadlinePassed);
+require_keys_eq!(campaign.recipient, expected_recipient, FundraiserError::RecipientChanged);
 ```
 
-The SOL moves by System Program CPI into the `Campaign` PDA itself. From that
-moment it is held by a program-owned account, so no private key in the world
-can move it except through `withdraw` or `refund`.
+USDC moves with `transfer_checked` from the contributor's own token account
+into the vault. Every account is pinned by an Anchor constraint: the mint
+must be the campaign's, the source must belong to the contributor, the
+destination must be the campaign's vault at its canonical address. The
+contribution that reaches the goal switches the campaign to *Succeeded*, and
+from then on it takes no more money. `expected_recipient` is the recipient
+the contributor was shown: if the organiser changed it in the meantime, the
+contribution is refused.
+
+### `update_recipient` and `cancel` — the organiser's only two powers
+`update_recipient` fixes a mistyped recipient, but only while nothing has
+been raised (`RecipientLocked` afterwards): the first contribution locks it
+for good. `cancel` calls a campaign off, but only while it is still open
+(`GoalReached` once the goal is met). It moves no money; it opens refunds.
 
 ### Private campaigns — only invite-link holders can join
-`program/programs/fundraiser/src/instructions/contribute.rs`
 
 ```rust
 if let Some(expected) = ctx.accounts.campaign.invite {
@@ -125,50 +150,18 @@ if let Some(expected) = ctx.accounts.campaign.invite {
 When an organiser creates a private campaign, the app generates a fresh
 **invite keypair**. Only its public key goes on chain (`Campaign.invite`). The
 secret half becomes the share link — `/c/<campaign>#invite=<secret>` — and the
-QR code. The program then refuses any contribution that is not co-signed by
-that invite key. So "only people with the link can join" is a rule in the
-program: a modified frontend or a hand-built transaction cannot get around it.
-
-The secret sits in the URL **fragment**, which browsers never send to a
-server, and it unlocks nothing except contributing to that one campaign.
-Withdraw and refund never need it, so a lost link can never trap anyone's
-money.
-
-### The escrow is the campaign account
-The `Campaign` PDA holds the lamports directly. Its balance is always
-
-```
-rent-exempt reserve + (total_raised − total_refunded)
-```
-
-Both payout paths debit lamports straight from it and both check that the
-rent-exempt reserve survives (`InsufficientCampaignBalance`), so the account
-that records the rules can never be drained out of existence.
+QR code. The program refuses any contribution that is not co-signed by that
+key, so "only people with the link can join" is a rule in the program, not in
+the page. The secret sits in the URL **fragment**, which browsers never send
+to a server, and it unlocks nothing except contributing to that one campaign:
+withdraw and refund never need it.
 
 ### What is *not* in the program
-There is no admin key, no platform fee, no pause switch, no "edit campaign",
-and no partial or milestone withdrawal. These are absent by construction — if
-an instruction does not exist, nobody can call it.
-
-### The one trusted party: the KYC verifier
-Opening a **public** campaign requires a verified organiser
-(`create_campaign` rejects with `KycRequired` otherwise). Verification is a
-`Verification` account at `["verification", wallet]`, which only
-`KYC_VERIFIER` can create, via `verify_identity`. Private friend-group
-campaigns need no verification.
-
-The verifier can only vouch for wallets. It has **no power over any campaign
-or any money**: it cannot withdraw, refund, edit, pause or block anything, and
-a verification cannot be moved to another wallet. It stores no personal data,
-only the wallet and the time.
-
-> **This build uses a demo verifier.** `KYC_VERIFIER` is derived from the
-> public seed `sha256("chip-in:demo-kyc-verifier:v1")`, so anyone can sign as
-> it, and the app's `/verify` form approves any input without checking
-> documents. The on-chain rule is real; the identity check behind it is a
-> mock. For production, replace `KYC_VERIFIER` in `constants.rs` with a real
-> KYC provider's key, kept on that provider's server and used only after it
-> has checked documents.
+No admin key, no platform fee, no pause switch, no "edit campaign", no partial
+or milestone payout, and no way to change goal, deadline or mint, ever. These
+are absent by construction — if an instruction does not exist, nobody can
+call it. (An earlier version had a KYC verifier key deciding who could open
+public campaigns; it was removed as a privileged key.)
 
 ---
 
@@ -176,19 +169,39 @@ only the wallet and the time.
 
 | Instruction | Who may sign | Conditions enforced on chain | Rejects with |
 |---|---|---|---|
-| `create_campaign` | Anyone (becomes the organiser); a **public** campaign needs a verified organiser | `goal > 0`, `deadline > now`, title ≤ 64 bytes, ≤ 5 tags, description ≤ 500 bytes, image link empty or `https://` and ≤ 200 bytes; optional invite key makes it private; no invite → the organiser's `Verification` must be passed | `InvalidGoal`, `InvalidDeadline`, `TitleTooLong`, `TooManyTags`, `DescriptionTooLong`, `ImageUrlTooLong`, `InvalidImageUrl`, `KycRequired` |
-| `contribute` | Anyone (public) · only holders of the invite link (private) | `now < deadline`, `amount > 0`, nickname ≤ 32 bytes, and for private campaigns the invite key must co-sign | `DeadlinePassed`, `InvalidAmount`, `NicknameTooLong`, `InviteRequired`, `InvalidInvite` |
-| `withdraw` | **Only `campaign.recipient`** | `now ≥ deadline`, `total_raised ≥ goal`, `!withdrawn` | `NotRecipient`, `DeadlineNotReached`, `GoalNotReached`, `AlreadyWithdrawn` |
-| `refund` | **Only the contributor of that `Contribution`** | `now ≥ deadline`, `total_raised < goal` | `DeadlineNotReached`, `GoalReached` |
-| `close_campaign` | **Only `campaign.organizer`** | `withdrawn`, or goal missed and `total_refunded == total_raised` | `CampaignNotSettled` |
-| `verify_identity` | The wallet **and `KYC_VERIFIER`** (both sign) | One `Verification` per wallet; the wallet pays its rent | `NotVerifier` |
+| `create_campaign` | Anyone (becomes the organiser) | mint is the configured USDC; `goal > 0`; `deadline > now`; recipient set; title ≤ 64 bytes; ≤ 5 tags; description ≤ 300 bytes; image link empty or `https://`, ≤ 200 bytes; optional invite key makes it private | `WrongMint`, `InvalidGoal`, `InvalidDeadline`, `InvalidRecipient`, `TitleTooLong`, `TooManyTags`, `DescriptionTooLong`, `ImageUrlTooLong`, `InvalidImageUrl` |
+| `contribute` | Anyone (public) · invite-link holders only (private) | status Active; `now < deadline`; `amount > 0`; recipient unchanged; nickname ≤ 32 bytes; invite co-signs if private | `CampaignNotActive`, `DeadlinePassed`, `InvalidAmount`, `RecipientChanged`, `NicknameTooLong`, `InviteRequired`, `InvalidInvite`, `WrongMint` |
+| `withdraw` | **Anyone** — pays only to `campaign.recipient` | status Succeeded (goal reached); once | `GoalNotReached`, `AlreadyWithdrawn`, `CampaignCancelled`, `NotRecipient` |
+| `refund` | **Only the contributor of that receipt** | cancelled, or deadline passed with the goal missed | `DeadlineNotReached`, `GoalReached` |
+| `cancel` | **Only `campaign.organizer`** | status Active (goal not reached) | `NotOrganizer`, `GoalReached`, `CampaignCancelled` |
+| `update_recipient` | **Only `campaign.organizer`** | status Active and nothing raised yet | `NotOrganizer`, `RecipientLocked`, `CampaignNotActive`, `InvalidRecipient` |
+| `close_campaign` | **Only `campaign.organizer`** | paid out, or every refund taken; vault empty | `CampaignNotSettled`, `NotOrganizer` |
 
-`close_campaign` is housekeeping: it returns the organiser's own rent deposit
-once nothing is left to settle. It is unreachable while any contributor is
-still owed a refund, so it can never touch contributor money.
+`close_campaign` is housekeeping: it returns the organiser's own deposits
+(campaign and vault) once nothing is left to settle. It is unreachable while
+any contributor is still owed a refund, and the token program refuses to close
+a vault that is not empty, so it can never touch contributor money.
 
 Time is always `Clock::get()?.unix_timestamp` — the cluster's clock, not a
-timestamp passed in by a caller. All arithmetic is checked.
+timestamp passed in by a caller. All arithmetic is checked. Every state change
+emits an event: `CampaignCreated`, `RecipientUpdated`, `Contributed`,
+`Withdrawn`, `Refunded`, `Cancelled`.
+
+### Mint per cluster
+
+`USDC_MINT` is fixed at build time by a cargo feature, so a deployed program
+accepts exactly one token and nobody can change it later:
+
+| Build | Mint |
+|---|---|
+| `anchor build -- --features mainnet` | USDC `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` |
+| `anchor build -- --features devnet` | Circle's devnet USDC `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` |
+| `anchor build` (localnet, tests) | a test mint `BSMC8D2tMSKrz5HFsNKJmAHDDsocVD5MypWD9podcoUe` |
+
+The localnet test mint's key comes from a public seed
+(`sha256("chip-in:localnet-test-usdc:v1")`) and is also its own mint
+authority, so anyone can mint it on a local validator — it is play money that
+exists nowhere else. Enabling both `devnet` and `mainnet` is a compile error.
 
 ---
 
@@ -198,117 +211,109 @@ timestamp passed in by a caller. All arithmetic is checked.
 |---|---|---|
 | Typical use | Trip to New Zealand, a leaving gift, a shared flat purchase | A cause or community project anyone can back |
 | Who can contribute | Only holders of the invite link / QR code — **enforced by the program** | Anyone |
-| Listed on the home page | Only for people already in it (organiser, recipient, contributors, or a browser that opened the invite) | For everyone |
-| Withdraw / refund rules | Identical | Identical |
+| Listed in the app | Only for people already in it | For everyone |
+| Payout, refund and cancel rules | Identical | Identical |
 
-**Honest caveat: private does not mean secret.** Every account on Solana is
-public. Anyone scanning the chain can see that a private campaign exists, its
-title, goal and contributions. "Private" means it is not advertised by this app
-and, more importantly, *that strangers cannot contribute to it*. Also, anyone
-who has the link can forward it; the program cannot tell a friend from a
-friend's friend.
+**Private does not mean secret.** Every account on Solana is public. Anyone
+scanning the chain can see that a private campaign exists, its title, goal and
+contributions. "Private" means it is not advertised by this app and that
+strangers cannot contribute to it. Anyone who has the link can forward it.
 
 ### Sharing
 
 Every campaign page has a share panel: a **QR code**, **Copy link**, the
-phone's native **Share…** sheet where supported, and **Download QR** (SVG). For
-private campaigns this panel only appears for someone who already holds the
-invite, and the link it shows carries it. The organiser lands on that panel
-right after creating a campaign, and the invite is remembered in their browser.
+phone's native **Share…** sheet where supported, and **Download QR**. Under
+the QR code you choose what scanning it opens:
 
-The QR encodes the address the app is currently served from. On
-`localhost` a friend's phone cannot open it; host the app (or serve it on your
-LAN) for real-world sharing.
+- **Any browser** — the campaign page.
+- **Phantom app** / **Solflare app** — the same page inside that wallet's
+  in-app browser, ready to contribute, via the wallets' documented "browse"
+  links ([Phantom](https://docs.phantom.com/phantom-deeplinks/other-methods/browse),
+  [Solflare](https://docs.solflare.com/solflare/technical/deeplinks/other-methods/browse)).
 
-### Tags and search
+A phone cannot open a page served from `localhost`; the panel says so. Host
+the app publicly (it is a static site) for real-world sharing.
 
-Each campaign carries **up to five tags**, chosen at creation and fixed like
-every other field. Private and public campaigns draw from different sets:
+**About Solana Pay transaction requests.** A true transaction-request QR
+(`solana:https://…`) makes the wallet fetch a ready-built `contribute`
+transaction from a server. This project has no server by design, so that
+endpoint is not included. The building block is: `buildContributeTransaction`
+in `app/src/lib/actions.ts` builds exactly that transaction with no React and
+no wallet, and the comment there describes what the endpoint would do. Private
+campaigns could not use it, since their invite key must co-sign in the
+contributor's browser.
 
-- **Crowdfunding causes:** Medical, Education, Community, Animals,
-  Environment, Emergency, Arts & culture, Sports, Tech, Local business
-- **Friend groups:** Trip, Gift, Birthday, Party, Flatmates, Concert &
-  tickets, Food & dinner, Wedding, Shared purchase, Sports gear
+**Don't send USDC straight to a campaign address.** A wallet "send" to the
+campaign address would land in the vault without a receipt: it would not count
+toward the goal and could not be refunded. The campaign page says so next to
+the address. Use *Contribute*.
 
-On chain they are a single `u32` bitmask in `Campaign.tags`; the program
-enforces the five-tag cap (`TooManyTags`) and nothing else, since tags are
-description rather than rules. What each bit means is a catalogue in
-`app/src/lib/tags.ts`. Bits are permanent: new tags go on unused bits, and an
-existing bit is never renumbered, or old campaigns would be relabelled.
+### Paying a store
 
-The **Campaigns** page (`/campaigns`) is the search: free text over titles and
-tag names, tag chips (a campaign matches if it has *any* selected tag),
-Crowdfunding / Your friend groups tabs, a status filter and sorting. Every
-filter is in the URL, so a search can be shared as a link —
-`/campaigns?tab=public&tags=animals,community`. There is no search server: the
-browser filters what `getProgramAccounts` returns, which is fine at hackathon
-scale and would need an indexer at real scale. Private campaigns only ever
-appear in search for people already in them.
+The create form's recipient field also accepts a store's **Solana Pay
+transfer link** (`solana:<recipient>?amount=…&spl-token=…&reference=…`). The
+app takes the recipient from it, offers the amount as the goal when the link
+asks for USDC, and warns when it asks for SOL or another token. The link's
+`reference` is remembered **in the creating browser only** and attached to the
+payout, so the store can find it; a payout triggered from another browser goes
+out without it.
 
-### Nicknames
+### Tags, search and nicknames
 
-Contributors pick a name for the group when they contribute — "Kuba", "Ola" —
-and the contributor list shows it, with the wallet address underneath. The name
-is stored **on chain in the contributor's own `Contribution` account**
-(≤ 32 bytes), so there is still no backend. It is per campaign, so you can be
-"Kuba" to friends and use your full name on a public cause. A later top-up
-without a name keeps the previous one. The app remembers your last nickname in
-your browser to prefill the field. Nicknames are self-chosen and unverified:
-they help friends tell each other apart, they are not identity.
+Each campaign carries **up to five tags**, fixed at creation, stored as a
+`u32` bitmask in `Campaign.tags`; the meaning of each bit is in
+`app/src/lib/tags.ts` (bits are never renumbered). The **Campaigns** page is
+the search: free text, tag chips, public/private tabs, status filter and sort,
+all kept in the URL. There is no search server: the browser filters what
+`getProgramAccounts` returns.
+
+Contributors pick a name for the group when they contribute — "Kuba", "Ola".
+It is stored on chain in their own receipt (≤ 32 bytes), per campaign, and is
+self-chosen and unverified: it helps friends tell each other apart, it is not
+identity.
 
 ---
 
 ## What if a party disappears?
 
-**The organiser vanishes.** Nothing changes. They hold no power to begin with:
-they cannot withdraw (unless they are also the recipient, and then only under
-the same rules as anyone), cannot cancel, cannot edit. Contributions and
-refunds carry on working without them. The only thing lost is their own rent
-deposit, which `close_campaign` would have returned.
+**The organiser vanishes.** Nothing changes. They hold no power over the money
+to begin with. Contributions, the payout and refunds all work without them.
+The only thing they lose is their own deposits, which `close_campaign` would
+have returned.
+
+**The recipient vanishes.** The payout still happens: anyone can trigger it,
+and the money lands in the recipient's account, waiting for them. Nobody else
+can receive it.
 
 **A contributor vanishes.** Their refund waits for them indefinitely. There is
-no claim deadline and no expiry — their `Contribution` account stays on chain
-until they sign for it. Nobody can claim it on their behalf or sweep it.
-
-**The recipient never withdraws after a successful campaign.** The funds stay
-locked in the PDA forever. This is a real limitation and we are not going to
-pretend otherwise: contributors cannot refund (the goal was met) and nobody
-else can withdraw (they are not the recipient), so the money is stuck. The fix
-is a claim window — see [Next steps](#known-limitations-and-next-steps). We
-chose not to add one for the MVP because it introduces a second deadline and a
-second set of rules to explain, and we would rather ship a small set of rules
-that are completely honest than a larger set we only half-tested.
+no claim deadline and no expiry. Nobody can claim it on their behalf or sweep
+it.
 
 ---
 
 ## Can the authors change anything?
 
-**Right now, yes — and you should know exactly how.** The program is deployed
-as an upgradeable program, so whoever holds the upgrade authority (the deploy
-wallet, `HjfSNzEaFFWMoijgQN8jhMye4yfSoAbgSfBshHroRB7K`) can replace its code
-with a different program at the same address. That would mean replacing the
-rules this entire project rests on. No amount of careful `require!` statements
-protects you from a changed program.
+**While the program is upgradeable, yes — and you should know exactly how.**
+Whoever holds the upgrade authority (the wallet that deploys it:
+[TODO: deploy wallet address once deployed]) can replace the program's code at
+the same address, which would mean replacing the rules this project rests on.
+No careful check in the code protects you from a changed program.
 
 What the authority holder **cannot** do is reach into existing campaigns with
-the current code. There is no admin instruction, no backdoor, no privileged
-key in the program itself. The only lever is a full code replacement. (The
-KYC verifier key is privileged only in what it can vouch for, never in what it
-can do to a campaign — see [The one trusted party](#the-one-trusted-party-the-kyc-verifier).)
+the current code: there is no admin instruction and no privileged key in the
+program. The only lever is a full code replacement.
 
 **To remove even that lever**, discard the upgrade authority:
 
 ```bash
+./scripts/make-immutable.sh          # asks you to type a confirmation
+# equivalent to:
 solana program set-upgrade-authority <PROGRAM_ID> --final
-# or, with the guard rails:
-./scripts/make-immutable.sh
 ```
 
-After that the program can never be upgraded by anyone, including us. It is
-irreversible — no bug fix, no recovery, ever. `scripts/make-immutable.sh` is
-provided and documented but **has not been run**: for a hackathon demo,
-staying upgradeable is the honest trade-off, and claiming otherwise would be
-worse than admitting it. Verify the current state yourself:
+After that nobody, including us, can ever upgrade the program — no bug fix,
+no recovery. The plan is to do this before submission; it **has not been
+done yet**. Check the current state yourself:
 
 ```bash
 solana program show DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7 --url devnet
@@ -326,27 +331,23 @@ them to be. The operator can run an `UPDATE`, ship a patch that skips the
 deadline check, move the pooled money out of the bank account the database is
 merely *describing*, get acquired, or shut down. The contributors cannot check
 any of this, and if they are wrong about the operator's honesty they find out
-only when the money is gone. Auditability does not fix it either: logs are
-written by the same party you are trusting.
+only when the money is gone.
 
 Three properties are doing the work here, and none of them come from a
 database:
 
-1. **The money and the rules are the same object.** `Campaign` is not a record
-   describing a balance held elsewhere; it *holds* the lamports. There is no
+1. **The money and the rules sit together.** The vault holds the USDC and only
+   the program can move it, under the rules stored next to it. There is no
    step where the rules say one thing and the bank account does another.
-2. **Nobody can execute what isn't written.** A database's constraints are
-   enforced by a process an operator controls. The program's constraints are
-   enforced by every validator. "Please let me withdraw early" is not a request
-   anyone can grant.
+2. **Nobody can execute what isn't written.** "Please let me take the money
+   early" is not a request anyone can grant; every validator enforces the same
+   checks.
 3. **Anyone can verify it, now and later.** Contributors can read the deployed
-   bytecode, the campaign's state and every transaction without asking us for
-   access. And with `--final`, the authors can provably remove themselves.
+   bytecode, the campaign's state and every transaction without asking us. And
+   with `--final`, the authors can provably remove themselves.
 
-The honest summary: this is worth doing when the people pooling money do not
-all trust the same person, and that person would otherwise have to be trusted
-with everything. For four flatmates who trust each other, a shared spreadsheet
-is fine.
+For four flatmates who trust each other, a shared spreadsheet is fine. This
+is worth it when the people pooling money do not all trust the same person.
 
 ---
 
@@ -355,48 +356,44 @@ is fine.
 ```
 program/                                  Anchor workspace — all rule enforcement
   programs/fundraiser/src/
-    lib.rs                                the five instructions
-    state.rs                              Campaign and Contribution accounts
-    error.rs                              named errors (DeadlineNotReached, …)
-    constants.rs                          PDA seeds, max title length
-    instructions/
-      create_campaign.rs                  writes the rules once, immutably
-      contribute.rs                       deadline + amount checks, SOL into the PDA
-      withdraw.rs                         recipient + deadline + goal + once
-      refund.rs                           deadline + goal-missed, closes the receipt
-      close_campaign.rs                   organiser reclaims rent when settled
-  tests/fundraiser.ts                     both outcomes + six rejections
-  target/idl/fundraiser.json              generated IDL (copied into the app)
+    lib.rs                                the seven instructions
+    state.rs                              Campaign (+ status enum) and Contribution
+    events.rs                             one event per state change
+    error.rs                              named errors (GoalNotReached, …)
+    constants.rs                          seeds, size limits, USDC_MINT per cluster
+    instructions/                         create_campaign, update_recipient, contribute,
+                                          withdraw, refund, cancel, close_campaign
+  tests/litesvm/                          LiteSVM suite (time travel, no validator)
 
-app/                                      frontend — no backend, no database
-  src/lib/program.ts                      Anchor client + PDA derivation
-  src/lib/campaign.ts                     reads chain state, derives Open/Succeeded/Failed/Withdrawn
+app/                                      static frontend — no backend, no database
+  src/lib/program.ts                      Anchor client, PDA and token-account helpers, USDC_MINT
+  src/lib/indexer/                        CampaignIndex: RPC (getProgramAccounts) today
+  src/lib/campaign.ts                     campaign model and status
+  src/lib/actions.ts                      buildContributeTransaction (Solana Pay extension point)
+  src/lib/format.ts                       exact USDC parsing/formatting; SOL for fees
+  src/lib/solanaPay.ts                    parses Solana Pay transfer links
   src/lib/send.ts                         signs, sends, and reports what the chain did
-  src/lib/errors.ts                       maps program errors to plain language
+  src/lib/errors.ts                       program errors in plain language
   src/lib/explain.ts                      the "What can happen now" wording
-  src/lib/useChainClock.ts                uses the cluster's clock, not the browser's
-  src/lib/invite.ts                       invite links (#fragment), share URLs, nickname memory
-  src/components/SharePanel.tsx           QR code, copy link, native share, download QR
-  src/pages/HomePage.tsx                  landing: how it works, browse by tag, featured campaigns
-  src/pages/CampaignsPage.tsx             search: text, tags, public/private tabs, status, sort
-  src/lib/tags.ts                         tag catalogue: what each bit of Campaign.tags means
-  src/lib/useCampaignDirectory.ts         which campaigns this viewer may see listed
-  src/pages/CreateCampaignPage.tsx        create form
-  src/pages/CampaignPage.tsx              actions, contributors, early-withdraw demo
+  src/lib/testUsdc.ts                     "Get test USDC" on a local validator
+  src/pages/                              home, campaigns (search), create, campaign, leaderboard
 
 scripts/
   env.sh                                  puts the toolchain on PATH
   airdrop.sh                              devnet SOL for demo wallets
-  deploy-devnet.sh                        build + deploy + sync IDL into the app
-  make-immutable.sh                       discard the upgrade authority (NOT run)
-  seed-local.sh / .ts                     fills a local validator with all four states
+  deploy-devnet.sh                        devnet build + deploy + sync IDL into the app
+  make-immutable.sh                       discard the upgrade authority (not run yet)
+  seed-local.sh / .ts                     local validator: test USDC + campaigns in every state
 ```
 
-**There is no server and no database.** The frontend reads campaigns with
-`getProgramAccounts` filtered by the `Campaign` discriminator, and a campaign's
-contributors with one `memcmp` at offset 8 against `Contribution.campaign` —
-which is why that field is first in the struct. Every write is a transaction
-signed by the user's own wallet.
+The app reads campaigns with `getProgramAccounts` filtered by account type and
+by mint (`memcmp` at offset 72), and a campaign's contributors with one
+`memcmp` at offset 8 against `Contribution.campaign`. Fixed-size fields come
+first in `Campaign` so they sit at fixed offsets (organiser 8, recipient 40,
+mint 72, campaign id 104, status 112). Reads go through the `CampaignIndex`
+interface in `app/src/lib/indexer/`, so an indexing service such as Helius can
+replace plain RPC later without touching the pages. Balances and status always
+come from the chain.
 
 ---
 
@@ -409,177 +406,186 @@ signed by the user's own wallet.
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
 cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-avm install latest && avm use latest
+avm install 1.2.0 && avm use 1.2.0
 
 source scripts/env.sh   # in every shell afterwards
 ```
 
+On Windows, use WSL. The repository's shell scripts may be checked out with
+CRLF line endings there; convert them (`dos2unix scripts/*.sh`) or run their
+commands directly if bash refuses them.
+
 ### Tests
 
-Anchor 1.2 defaults to `surfpool` as its local validator; this workspace uses
-the `solana-test-validator` that ships with Agave, so start one yourself:
+The suite runs in-process on [LiteSVM](https://github.com/LiteSVM/litesvm): no
+validator, and deadlines are passed by moving the clock rather than waiting.
 
 ```bash
-# terminal 1
-solana-test-validator --ledger program/test-ledger --reset --quiet
-
-# terminal 2
-cd program && npm install && anchor test --skip-local-validator
+cd program
+npm install
+anchor build
+npm test                                          # the whole suite
+npx ts-mocha -p ./tsconfig.json -t 1000000 tests/litesvm/security.test.ts   # one file
+npx ts-mocha -p ./tsconfig.json -t 1000000 'tests/litesvm/**/*.test.ts' -g "double refund"   # by name
 ```
 
-Deadlines in the suite are ~8 seconds out and the tests really wait for them,
-so a full run takes about a minute.
+What the suite covers (`program/tests/litesvm/`):
 
-```
-✔ success path: two contributions reach the goal, then the recipient withdraws
-✔ failure path: the goal is missed, so the contributor reclaims exactly what they paid
-✔ rejects withdraw before the deadline
-✔ rejects withdraw by anyone who is not the recipient
-✔ rejects withdraw when the goal was missed
-✔ rejects refund when the goal was reached
-✔ rejects a second refund
-✔ rejects contribute after the deadline
-8 passing
-```
+- `security.test.ts` — the end-to-end scenarios: happy path with every event;
+  goal missed, everyone refunds, double refunds fail; cancel, everyone
+  refunds, payout refused; unauthorised cancel / recipient change; payout
+  unable to redirect; late contribution, wrong mint, fake vault;
+  cross-campaign attacks; money conservation.
+- `campaign.test.ts`, `contribute.test.ts`, `payout.test.ts` — each
+  instruction's rules and refusals.
+- `validation.test.ts` — input limits, and a campaign with every field at its
+  maximum still fitting in one transaction with headroom.
+- `no-admin-keys.test.ts`, `harness.test.ts` — no privileged key left in the
+  interface; the harness itself.
+
+LiteSVM must be the 1.x line: the 0.3 line (and `anchor-litesvm`, which wraps
+it) cannot load SBPF v3 programs, which Agave 4.x builds. `tests/litesvm/provider.ts`
+is the small Anchor provider that bridges this project's web3.js v1 client to
+LiteSVM 1.x.
+
+### Getting devnet SOL and devnet USDC
+
+- **SOL** (fees and deposits): `./scripts/airdrop.sh <ADDRESS>`, or the web
+  faucet at <https://faucet.solana.com>, which has a separate, more generous
+  limit. The CLI faucet rate-limits by IP.
+- **USDC**: Circle's faucet at <https://faucet.circle.com> — choose Solana
+  Devnet and paste your wallet address. That is the mint the `devnet` build
+  accepts (`4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`). The app's
+  wallet bar links to it.
 
 ### Deploying to devnet
 
-Deploying costs about **2.05 SOL** of devnet SOL (rent for a ~199 KB program).
+A fresh deployment; there is no previous devnet deployment to migrate.
 
 ```bash
 solana config set --url devnet
-./scripts/airdrop.sh                 # or https://faucet.solana.com if rate-limited
+./scripts/airdrop.sh                 # fund the deploy wallet
 ./scripts/deploy-devnet.sh
 ```
 
-The faucet caps airdrops at 2 SOL and rate-limits per IP; `faucet.solana.com`
-has a separate, more generous limit. `deploy-devnet.sh` copies the freshly
-generated IDL and types into `app/src/idl/`, so the app always talks to exactly
-what was deployed.
+Deploying needs [TODO: measured SOL cost of deploying the current .so] of
+devnet SOL for the program's rent.
+
+`deploy-devnet.sh` builds with `--features devnet`, refuses to continue if
+the build would not accept devnet USDC, deploys, and copies the IDL, types
+and error codes into `app/src/idl/` so the app talks to exactly what was
+deployed.
+
+It also refuses if `program/target/deploy/fundraiser-keypair.json` is not
+the keypair for the address in `declare_id!`, because a program deployed at
+any other address rejects every call. That keypair is gitignored. If you do
+not have the original, deploy under a new address instead:
+
+```bash
+cd program && anchor keys sync && cd ..   # writes the keypair's address into lib.rs and Anchor.toml
+./scripts/deploy-devnet.sh
+```
 
 ### The frontend
 
 ```bash
-cd app && npm install && npm run dev     # http://localhost:5173, devnet
+cd app && npm install && npm run dev     # http://localhost:5173, against devnet
+npm run build                            # static site in app/dist/
 ```
 
-Connect Phantom or Solflare, set to **Devnet** in the wallet's own settings.
-`./scripts/airdrop.sh <YOUR_WALLET_ADDRESS>` funds it.
-
-To develop against a local validator instead:
-
-```bash
-VITE_RPC_ENDPOINT=http://127.0.0.1:8899 npm run dev
-```
-
-That override exists only for local development. There is no mainnet option
-anywhere in the app.
+Connect Phantom, Solflare or Backpack (any Wallet Standard wallet appears
+automatically), set to **Devnet** in the wallet's own settings.
 
 ### Running the whole flow on a local validator
 
-Useful when the devnet faucet is rate-limiting. Four terminals' worth of setup,
-in order:
+Useful when the devnet faucet is rate-limiting, and the fastest way to try
+everything. Build without features (the test mint), then:
 
 ```bash
-# 1. validator
-solana-test-validator --ledger program/test-ledger --reset --quiet
+# 1. validator, with the program loaded at its declared address
+solana-test-validator --ledger program/test-ledger --reset --quiet \
+  --bpf-program DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7 program/target/deploy/fundraiser.so
 
-# 2. deploy the program to it
-solana program deploy --url localhost \
-  --program-id program/target/deploy/fundraiser-keypair.json \
-  program/target/deploy/fundraiser.so
-
-# 3. optional: campaigns in all four states, to see the UI without waiting
+# 2. test USDC and campaigns in every state (open, goal reached, paid out,
+#    cancelled, goal missed)
 ./scripts/seed-local.sh
 
-# 4. the app
+# 3. the app
 cd app && VITE_RPC_ENDPOINT=http://127.0.0.1:8899 npm run dev
 ```
 
-**Point your wallet at the same network, or nothing will work.** The app and
-the wallet each have their own idea of which cluster they are on, and a wallet
-funded on devnet holds nothing on your local validator. In Phantom: *Settings →
-Developer Settings → Testnet Mode*, then set Solana to **Localnet**
-(`http://127.0.0.1:8899`). Solflare has the equivalent under its network
-settings.
-
-Then click **Get test SOL** in the app to fund the connected wallet. If you
-skip this you will get a bank-level rejection — `Attempt to debit an account
-but found no record of a prior credit` — which simply means the wallet has
-never held SOL on this cluster.
+**Point your wallet at the same network, or nothing will work.** In Phantom:
+*Settings → Developer Settings → Testnet Mode*, then set Solana to
+**Localnet** (`http://127.0.0.1:8899`). Then use **Get test SOL** and **Get
+test USDC** in the app's wallet bar.
 
 ---
 
 ## Demo walkthrough
 
-Three devnet wallets: **A** (organiser and recipient), **B** and **C**
-(contributors). Fund all three with `./scripts/airdrop.sh <A> <B> <C>`.
-
-The create form defaults to **Private**, since friend groups are the main use.
-For campaigns 1 and 2 either works; if private, send B and C the invite link or
-let them scan the QR code.
+Two or three wallets: **A** organises, **B** and **C** contribute. On devnet,
+fund them with SOL and Circle devnet USDC (above); locally, use the app's
+*Get test SOL* / *Get test USDC*.
 
 **Campaign 1 — it succeeds**
 
-1. **A** creates "Leaving gift for Anna": goal **1 SOL**, deadline **2 minutes**.
-2. **B** contributes **0.6 SOL**, **C** contributes **0.5 SOL**. The bar passes
-   100% and both appear under "Who chipped in".
-3. **A** clicks **"Try to withdraw early (demo)"** — *this is the moment the
-   point is made*. The transaction is sent with `skipPreflight: true`, so it is
-   really submitted to devnet and really rejected by the program. The UI shows
-   `DeadlineNotReached` and links to the **failed transaction** on Solana
-   Explorer. The web page did not stop A. The program did.
-4. After the deadline the badge flips to **Succeeded**. **A** clicks
-   **Withdraw** and receives 1.1 SOL. Explorer link shown.
+1. **A** creates "Leaving gift for Anna": goal **50 USDC**, recipient A's own
+   wallet or a store's Solana Pay link.
+2. **B** contributes **20 USDC**.
+3. **C** clicks **"Try to pay out early (demo)"** — *this is the moment the
+   point is made*. The transaction is sent with `skipPreflight: true`, so it
+   is really submitted and really rejected by the program with
+   `GoalNotReached`, with a link to the **failed transaction** on Solana
+   Explorer. The web page did not stop C. The program did.
+4. **C** contributes **30 USDC**. The badge flips to **Goal reached**.
+5. **C** — not the recipient — clicks **Send the money to the recipient**. The
+   review shows that none of it passes through C's wallet. The recipient
+   receives exactly 50 USDC.
 
-**Campaign 2 — it fails**
+**Campaign 2 — it is called off**
 
-5. **A** creates "Ski trip deposit": goal **5 SOL**, deadline **2 minutes**.
-6. **B** contributes **0.3 SOL**.
-7. After the deadline the badge flips to **Failed**. **A** trying to withdraw
-   is rejected with `GoalNotReached`.
-8. **B** clicks **"Get my money back"** and receives their 0.3 SOL — plus the
-   rent of the closed receipt. Clicking it again fails: the receipt is gone.
+6. **A** creates "Ski trip deposit", goal **500 USDC**. **B** contributes
+   **30 USDC**.
+7. **A** clicks **Cancel campaign**. The review says it only opens refunds.
+8. **B** clicks **Get my money back** and receives exactly 30 USDC. Clicking it
+   again fails: the receipt is gone.
 
 **Campaign 3 — private, for friends** (optional)
 
-9. **A** creates "Trip to New Zealand" as **Private**. The page opens on the
+9. **A** creates "Trip to New Zealand" as **Private**; the page opens on the
    invite panel with a QR code.
-10. **C**, without the link, opens the campaign address and clicks
-    **"Try to contribute without the invite (demo)"**. The transaction lands
-    and the program rejects it with `InviteRequired`.
-11. **B** opens the invite link (or scans the QR), enters the nickname "Kuba"
-    and contributes. The list shows "Kuba", not an address.
-
-Worth pointing out while demoing: at step 3 the *organiser and recipient* is
-the one being refused, by a rule they themselves set two minutes earlier and
-now cannot undo.
+10. **C**, without the link, clicks **"Try to contribute without the invite
+    (demo)"**: the program rejects it with `InviteRequired`.
+11. **B** opens the invite link, picks the nickname "Kuba" and contributes.
 
 ---
 
 ## Known limitations and next steps
 
-- **SOL only.** Pooling in **USDC** or another SPL token would remove the
-  exchange-rate risk over a week-long campaign, which matters a lot for
-  "we need exactly 400 zł". This means token accounts and an ATA for the
-  campaign PDA.
-- **Funds stick if the recipient never withdraws.** A **claim window** — after
-  which an unclaimed successful campaign becomes refundable to its contributors
-  — would close the one hole we know about. See
-  [What if a party disappears?](#what-if-a-party-disappears).
-- **No organiser cancel-and-refund.** If a campaign is created by mistake or
-  the gift gets cancelled, everyone must wait for the deadline. An organiser
-  `cancel()` that only ever opens refunds (and can never pay out) would be safe
-  to add.
-- **Private is not secret.** Campaign data is readable on chain by anyone.
-  Truly confidential amounts would need encryption or a privacy-preserving
-  token, which is out of scope.
-- **Invite links can be forwarded.** Anyone a friend forwards the link to can
-  join. Per-person invites (one key per invitee) would fix this.
-- **Nicknames are not identity.** Anyone can type any name.
-- **Search runs in the browser.** It downloads every campaign account and
-  filters locally. Past a few thousand campaigns this needs an indexer.
-- **The program is still upgradeable.** See
+- **Not deployed to devnet yet** — see [Deploying to devnet](#deploying-to-devnet).
+- **The program is still upgradeable** until `make-immutable.sh` is run. See
   [Can the authors change anything?](#can-the-authors-change-anything).
-- **Not audited.** Devnet, test money, a hackathon weekend. Do not put real
+- **No Solana Pay transaction-request endpoint** (no server by design); the
+  share QR can open the page inside Phantom or Solflare instead. See
+  [Sharing](#sharing).
+- **Solana Pay references are remembered in one browser only.** A payout
+  triggered elsewhere goes out without the store's reference.
+- **No "change recipient" button yet.** The program supports correcting the
+  recipient before the first contribution; the app does not offer it.
+- **Deposits.** A first contribution's receipt deposit is returned with a
+  refund, but stays locked if the goal is reached; `close_campaign` returns
+  the organiser's deposits but has no button in the app.
+- **USDC sent directly to a vault** cannot be refunded (no receipt); on
+  success it goes to the recipient with everything else.
+- **A custom RPC URL is treated as a local validator.** `VITE_RPC_ENDPOINT`
+  exists for local development; pointing it at a dedicated devnet RPC would
+  mislabel the network in the UI.
+- **Private is not secret, invite links can be forwarded, nicknames are not
+  identity.**
+- **Search runs in the browser.** Past a few thousand campaigns it needs an
+  indexer — the `CampaignIndex` interface is where one plugs in.
+- **Fiat off-ramp, a Squads multisig as recipient, and group voting on
+  spending** are out of scope. The recipient can already be any address,
+  including a multisig vault.
+- **Not audited.** Devnet, test money, a hackathon project. Do not put real
   money anywhere near this.

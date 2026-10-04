@@ -1,16 +1,15 @@
 import { BN } from '@coral-xyz/anchor'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
-import { Keypair, PublicKey, SystemProgram } from '@solana/web3.js'
+import { Keypair, PublicKey } from '@solana/web3.js'
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 
 import { Address } from '../components/Address'
 import { ReviewPanel, type ReviewView } from '../components/ReviewPanel'
 import { TxResult } from '../components/TxResult'
-import { CAMPAIGN_ACCOUNT_SPACE, accountDeposit, networkFee } from '../lib/fees'
+import { CAMPAIGN_ACCOUNT_SPACE, TOKEN_ACCOUNT_SPACE, accountDeposit, networkFee } from '../lib/fees'
 import { encodeInvite, rememberInvite } from '../lib/invite'
-import { useVerification, verificationPda } from '../lib/kyc'
 import {
   MAX_DESCRIPTION_BYTES,
   MAX_IMAGE_URL_BYTES,
@@ -20,7 +19,9 @@ import {
 } from '../lib/program'
 import { MAX_TAGS, encodeTags, tagsForScope, type Tag } from '../lib/tags'
 import { sendTransaction, type TxOutcome } from '../lib/send'
-import { formatSol, solToLamports } from '../lib/format'
+import { formatUsdc, parseUsdc } from '../lib/format'
+import { looksLikeSolanaPay, parseSolanaPayUrl, rememberReference, type PaymentRequest } from '../lib/solanaPay'
+import { USDC_MINT } from '../lib/program'
 import { useChainClock } from '../lib/useChainClock'
 
 const PRESETS = [
@@ -36,9 +37,12 @@ type Draft = {
   campaignId: bigint
   campaign: PublicKey
   title: string
-  goalLamports: BN
+  /** In USDC base units. */
+  goal: BN
   seconds: number
   recipientKey: PublicKey
+  /** From a pasted Solana Pay link; remembered locally for the payout. */
+  reference: PublicKey | null
   invite: Keypair | null
   tags: number
   description: string
@@ -47,6 +51,9 @@ type Draft = {
 }
 
 const byteLength = (text: string) => new TextEncoder().encode(text).length
+
+/** A fresh id per campaign so one organizer can run many of them. */
+const freshCampaignId = () => BigInt(Date.now())
 
 /** Mirrors the program's rule: empty, or a link starting with https://. */
 const isAllowedImageUrl = (url: string) => url === '' || /^https:\/\/\S+$/.test(url)
@@ -57,7 +64,6 @@ export function CreateCampaignPage() {
   const wallet = useWallet()
   const navigate = useNavigate()
   const now = useChainClock()
-  const verification = useVerification()
 
   const [visibility, setVisibility] = useState<'private' | 'public'>('private')
   const [tags, setTags] = useState<Tag[]>([])
@@ -74,17 +80,27 @@ export function CreateCampaignPage() {
   const [formError, setFormError] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
 
-  // Public campaigns need a verified organizer; the program enforces it too.
-  const needsVerification = visibility === 'public' && verification.status !== 'verified'
-
   const titleBytes = byteLength(title)
   const descriptionBytes = byteLength(description.trim())
   const trimmedImageUrl = imageUrl.trim()
   const imageUrlValid = isAllowedImageUrl(trimmedImageUrl) && byteLength(trimmedImageUrl) <= MAX_IMAGE_URL_BYTES
   const connectedKey = wallet.publicKey?.toBase58() ?? ''
 
+  /** A pasted Solana Pay link, parsed; or the reason it could not be. */
+  const payment: { request: PaymentRequest } | { error: string } | null = (() => {
+    if (!looksLikeSolanaPay(recipient)) return null
+    try {
+      return { request: parseSolanaPayUrl(recipient) }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : 'That Solana Pay link could not be read.' }
+    }
+  })()
+  const paymentRequest = payment && 'request' in payment ? payment.request : null
+
   /** The address that will actually be written, or null while it is not a valid key. */
   const resolvedRecipient = (() => {
+    if (paymentRequest) return paymentRequest.recipient.toBase58()
+    if (payment) return null
     if (!recipient.trim()) return connectedKey || null
     try {
       return new PublicKey(recipient.trim()).toBase58()
@@ -98,7 +114,7 @@ export function CreateCampaignPage() {
       .createCampaign(
         new BN(d.campaignId.toString()),
         d.title,
-        d.goalLamports,
+        d.goal,
         new BN(nowSeconds + d.seconds),
         d.recipientKey,
         d.invite?.publicKey ?? null,
@@ -106,13 +122,9 @@ export function CreateCampaignPage() {
         d.description,
         d.imageUrl,
       )
-      .accountsPartial({
-        organizer,
-        campaign: d.campaign,
-        // Only a public campaign needs it; the seeds bind it to this organizer.
-        verification: d.invite ? null : verificationPda(organizer),
-        systemProgram: SystemProgram.programId,
-      })
+      // The USDC mint and the campaign's vault are fixed by the program and
+      // resolved from the IDL.
+      .accountsPartial({ organizer, campaign: d.campaign })
       .transaction()
 
   async function submit(event: React.FormEvent) {
@@ -124,14 +136,10 @@ export function CreateCampaignPage() {
       setFormError('Connect a wallet first.')
       return
     }
-    if (needsVerification) {
-      setFormError('Verify your identity before opening a public campaign.')
-      return
-    }
 
-    let goalLamports: BN
+    let goalUnits: BN
     try {
-      goalLamports = solToLamports(goal)
+      goalUnits = parseUsdc(goal)
     } catch (e) {
       setFormError(e instanceof Error ? e.message : 'Enter a valid goal.')
       return
@@ -160,23 +168,31 @@ export function CreateCampaignPage() {
       return
     }
 
+    if (payment && 'error' in payment) {
+      setFormError(payment.error)
+      return
+    }
     let recipientKey: PublicKey
     try {
-      recipientKey = recipient.trim() ? new PublicKey(recipient.trim()) : wallet.publicKey
+      recipientKey = paymentRequest
+        ? paymentRequest.recipient
+        : recipient.trim()
+          ? new PublicKey(recipient.trim())
+          : wallet.publicKey
     } catch {
       setFormError('That recipient address is not a valid Solana address.')
       return
     }
 
-    // A fresh id per campaign so one organizer can run many of them.
-    const campaignId = BigInt(Date.now())
+    const campaignId = freshCampaignId()
     const next: Omit<Draft, 'view'> = {
       campaignId,
       campaign: campaignPda(wallet.publicKey, campaignId),
       title: title.trim(),
-      goalLamports,
+      goal: goalUnits,
       seconds,
       recipientKey,
+      reference: paymentRequest?.references[0] ?? null,
       // A private campaign gets a fresh invite key. Only its public half goes
       // on chain; the secret half becomes the share link.
       invite: visibility === 'private' ? Keypair.generate() : null,
@@ -188,30 +204,40 @@ export function CreateCampaignPage() {
     setBusy(true)
     try {
       const organizer = wallet.publicKey
-      const [fee, deposit] = await Promise.all([
+      const [fee, deposit, vaultDeposit] = await Promise.all([
         build(next, organizer, now).then((tx) => networkFee(connection, tx, organizer)),
         accountDeposit(connection, CAMPAIGN_ACCOUNT_SPACE),
+        accountDeposit(connection, TOKEN_ACCOUNT_SPACE),
       ])
       setDraft({
         ...next,
         view: {
           heading: 'Review your campaign',
           parties: [
-            { label: 'Recipient, fixed forever', address: recipientKey.toBase58() },
+            { label: 'Recipient (locked by the first contribution)', address: recipientKey.toBase58() },
             { label: 'New campaign account that will hold the money', address: next.campaign.toBase58() },
           ],
           lines: [
             {
               label: 'Campaign account deposit',
-              lamports: deposit,
+              asset: 'sol',
+              amount: deposit,
               direction: 'out',
               note: 'Kept in the campaign account while it exists. The program can return it to you once everything is settled, but this app has no button for that yet.',
             },
-            { label: 'Network fee', lamports: fee, direction: 'out' },
+            {
+              label: 'Vault deposit',
+              asset: 'sol',
+              amount: vaultDeposit,
+              direction: 'out',
+              note: "Opens the campaign's own USDC account, which holds the money. Returned with the campaign deposit.",
+            },
+            { label: 'Network fee', asset: 'sol', amount: fee, direction: 'out' },
           ],
           facts: [
-            'The name, goal, deadline, recipient, tags and who can join can never be changed after this, not by you and not by us.',
-            `Goal: ${formatSol(goalLamports)}. The deadline is counted from the moment you confirm.`,
+            'The name, goal, deadline, tags and who can join can never be changed after this, not by you and not by us.',
+            'Until anyone contributes, you can still correct the recipient. The first contribution locks it for good.',
+            `Goal: ${formatUsdc(goalUnits)}. The deadline is counted from the moment you confirm.`,
             'Creating the campaign moves none of your money apart from the deposit and the fee.',
             ...(next.imageUrl
               ? ['Only the photo link is fixed. Whoever hosts the image could still change or remove it.']
@@ -240,6 +266,7 @@ export function CreateCampaignPage() {
       setOutcome(result)
       setDraft(null)
       if (result.kind === 'success') {
+        if (draft.reference) rememberReference(draft.campaign, draft.reference)
         if (draft.invite) {
           rememberInvite(draft.campaign, draft.invite)
           navigate(`/c/${draft.campaign.toBase58()}#invite=${encodeInvite(draft.invite)}`)
@@ -309,17 +336,6 @@ export function CreateCampaignPage() {
             </small>
           </button>
         </div>
-
-        {needsVerification && (
-          <div className="notice notice-blocked">
-            <strong>Public campaigns need a verified identity.</strong>
-            <p>
-              Crowdfunding takes money from strangers, so organizers must verify who they are first.
-              Private campaigns for friends do not need this.
-            </p>
-            <Link to="/verify">Verify your identity →</Link>
-          </div>
-        )}
 
         <label>
           <span>What is it for?</span>
@@ -414,7 +430,7 @@ export function CreateCampaignPage() {
         </fieldset>
 
         <label>
-          <span>How much do you need, in SOL?</span>
+          <span>How much do you need, in USDC?</span>
           <input
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
@@ -460,10 +476,56 @@ export function CreateCampaignPage() {
             spellCheck={false}
           />
           <small>
-            Leave it empty to use your own wallet. This address is fixed when the campaign is
-            created, so the money can never be sent anywhere else.
+            A wallet address, or a store&apos;s Solana Pay payment link (it starts with
+            &quot;solana:&quot;). Leave it empty to use your own wallet. Once anyone contributes, the
+            recipient is locked, so the money can never be sent anywhere else.
           </small>
         </label>
+
+        {payment && 'error' in payment && <p className="notice notice-error">{payment.error}</p>}
+        {paymentRequest && (
+          <div className="notice">
+            <strong>
+              Solana Pay request{paymentRequest.label ? ` from ${paymentRequest.label}` : ''}
+            </strong>
+            {paymentRequest.message && <p>{paymentRequest.message}</p>}
+            {paymentRequest.splToken && !paymentRequest.splToken.equals(USDC_MINT) && (
+              <p className="warn">
+                This request asks for a different token than USDC. The campaign can only pay out
+                USDC, so check with the store that they accept it.
+              </p>
+            )}
+            {paymentRequest.amount && !paymentRequest.splToken && (
+              <p className="warn">
+                This request is priced in SOL ({paymentRequest.amount} SOL), but campaigns raise
+                USDC. Set the goal in USDC yourself.
+              </p>
+            )}
+            {paymentRequest.amount && paymentRequest.splToken?.equals(USDC_MINT) && (
+              <p>
+                It asks for {paymentRequest.amount} USDC.{' '}
+                {goal.trim() !== paymentRequest.amount && (
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => {
+                      setGoal(paymentRequest.amount!)
+                      setDraft(null)
+                    }}
+                  >
+                    Use it as the goal
+                  </button>
+                )}
+              </p>
+            )}
+            {paymentRequest.references[0] && (
+              <p className="aside">
+                Its reference is remembered in this browser and attached to the payout, so the
+                store can find the payment.
+              </p>
+            )}
+          </div>
+        )}
 
         {resolvedRecipient ? (
           <div className={`notice ${resolvedRecipient === connectedKey ? '' : 'notice-blocked'}`}>
@@ -475,7 +537,7 @@ export function CreateCampaignPage() {
             <Address address={resolvedRecipient} />
           </div>
         ) : (
-          recipient.trim() && (
+          recipient.trim() && !payment && (
             <p className="notice notice-error">That is not a valid Solana address yet.</p>
           )
         )}
@@ -491,7 +553,7 @@ export function CreateCampaignPage() {
             onBack={() => setDraft(null)}
           />
         ) : (
-          <button type="submit" className="button button-primary" disabled={busy || needsVerification}>
+          <button type="submit" className="button button-primary" disabled={busy}>
             {busy ? 'Preparing…' : 'Review and create'}
           </button>
         )}

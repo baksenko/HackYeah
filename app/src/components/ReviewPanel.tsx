@@ -1,9 +1,12 @@
-import { formatSol } from '../lib/format'
+import { formatSol, formatUsdc } from '../lib/format'
 import { Address } from './Address'
 
 export type CostLine = {
   label: string
-  lamports: number
+  /** Campaign money is USDC; network fees and account deposits are SOL. */
+  asset: 'usdc' | 'sol'
+  /** In base units of `asset`: USDC's 6 decimals, or lamports. */
+  amount: number
   /** `out` leaves the connected wallet, `in` arrives in it. */
   direction: 'out' | 'in'
   note?: string
@@ -21,8 +24,8 @@ export type ReviewView = {
   danger?: boolean
 }
 
-const signed = (lamports: number) =>
-  `${lamports < 0 ? '−' : '+'}${formatSol(Math.abs(lamports), 9)}`
+const signed = (asset: CostLine['asset'], amount: number) =>
+  `${amount < 0 ? '−' : '+'}${asset === 'usdc' ? formatUsdc(Math.abs(amount), 6) : formatSol(Math.abs(amount), 9)}`
 
 export function ReviewPanel({
   view,
@@ -35,10 +38,17 @@ export function ReviewPanel({
   onConfirm: () => void
   onBack: () => void
 }) {
-  const net = view.lines.reduce(
-    (sum, line) => sum + (line.direction === 'in' ? line.lamports : -line.lamports),
-    0,
-  )
+  // One total per asset: USDC and SOL never add up into one number.
+  const totals = (['usdc', 'sol'] as const)
+    .map((asset) => ({
+      asset,
+      lines: view.lines.filter((line) => line.asset === asset),
+    }))
+    .filter((t) => t.lines.length > 0)
+    .map((t) => ({
+      asset: t.asset,
+      net: t.lines.reduce((sum, line) => sum + (line.direction === 'in' ? line.amount : -line.amount), 0),
+    }))
 
   return (
     <div className="review">
@@ -59,13 +69,17 @@ export function ReviewPanel({
                 {line.label}
                 {line.note && <small className="review-note">{line.note}</small>}
               </td>
-              <td className="right">{signed(line.direction === 'in' ? line.lamports : -line.lamports)}</td>
+              <td className="right">
+                {signed(line.asset, line.direction === 'in' ? line.amount : -line.amount)}
+              </td>
             </tr>
           ))}
-          <tr className="review-total">
-            <td>Change to your wallet</td>
-            <td className="right">{signed(net)}</td>
-          </tr>
+          {totals.map((total) => (
+            <tr key={total.asset} className="review-total">
+              <td>Change to your wallet{totals.length > 1 ? ` (${total.asset.toUpperCase()})` : ''}</td>
+              <td className="right">{signed(total.asset, total.net)}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
 
