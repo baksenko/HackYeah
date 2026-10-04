@@ -28,7 +28,7 @@ a financial transaction using a Solana program. Every change must preserve:
 - `app/` — Vite + React 19 + TypeScript frontend, Solana wallet adapter (Phantom, Solflare; Wallet Standard wallets such as Backpack are detected automatically).
 - `scripts/` — bash helpers: devnet deploy, airdrop, seeding a local validator, making the program immutable.
 
-Program ID `DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7` is the `declare_id!`. Its deploy keypair (`program/target/deploy/fundraiser-keypair.json`) is gitignored and may be missing locally — `anchor build` then generates a different one; don't deploy with it (`deploy-devnet.sh` refuses). Nothing is deployed to devnet yet.
+Program ID `HZYrUYrRqNt76f8Qh2tcJsxWk2dVep4sFHruWi7k7aJw` is the `declare_id!` (it replaced `DePh1gw…`, whose keypair was lost before anything was deployed there). Its deploy keypair (`program/target/deploy/fundraiser-keypair.json`) is gitignored and exists only on the machine that created it — keep a private backup; without it the program can't be redeployed or made immutable at this address. If it is missing, `anchor build` generates a different one; don't deploy with it (`deploy-devnet.sh` refuses). Deployed to devnet on 2026-10-04 (upgrade authority: the deploy wallet; not yet immutable). `deploy-devnet.sh` leaves `app/src/idl/` on the devnet build (devnet USDC mint), so for the local-validator flow rebuild without features and re-copy the IDL first.
 
 ## Commands
 
@@ -57,7 +57,7 @@ npm run lint                                         # oxlint
 Local end-to-end, from the repo root, with a localnet build (no features — the seed script refuses any other):
 
 ```bash
-solana-test-validator --ledger program/test-ledger --reset --quiet   --bpf-program DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7 program/target/deploy/fundraiser.so
+solana-test-validator --ledger program/test-ledger --reset --quiet   --bpf-program HZYrUYrRqNt76f8Qh2tcJsxWk2dVep4sFHruWi7k7aJw program/target/deploy/fundraiser.so
 ./scripts/seed-local.sh                                      # test USDC mint + campaigns in every state
 cd app && VITE_RPC_ENDPOINT=http://127.0.0.1:8899 npm run dev
 ```
