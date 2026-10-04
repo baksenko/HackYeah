@@ -39,6 +39,9 @@ export type CreateOptions = {
   tags?: number;
   description?: string;
   imageUrl?: string;
+  /** Solana Pay payment-request data stored on the campaign. */
+  reference?: PublicKey;
+  memo?: string;
   /** Overrides, to test that the program refuses them. */
   mint?: PublicKey;
   vault?: PublicKey;
@@ -67,7 +70,9 @@ export async function createCampaign(h: Harness, o: CreateOptions) {
       o.invite ?? null,
       o.tags ?? 0,
       o.description ?? "",
-      o.imageUrl ?? ""
+      o.imageUrl ?? "",
+      o.reference ?? null,
+      o.memo ?? ""
     )
     .accountsPartial(accounts)
     .signers([o.organizer])
@@ -75,9 +80,15 @@ export async function createCampaign(h: Harness, o: CreateOptions) {
   return { id, campaign, deadline, vault: vaultOf(campaign, o.mint ?? TEST_USDC_MINT) };
 }
 
-export function updateRecipient(h: Harness, campaign: PublicKey, organizer: Keypair, newRecipient: PublicKey) {
+export function updateRecipient(
+  h: Harness,
+  campaign: PublicKey,
+  organizer: Keypair,
+  newRecipient: PublicKey,
+  payment: { reference?: PublicKey | null; memo?: string } = {}
+) {
   return h.program.methods
-    .updateRecipient(newRecipient)
+    .updateRecipient(newRecipient, payment.reference ?? null, payment.memo ?? "")
     .accountsPartial({ organizer: organizer.publicKey, campaign })
     .signers([organizer])
     .rpc();
@@ -125,8 +136,11 @@ export async function contribute(
 }
 
 export type WithdrawOptions = {
-  /** Solana Pay reference key, passed read-only. */
-  reference?: PublicKey;
+  /**
+   * Solana Pay reference passed read-only. Defaults to the one stored on the
+   * campaign; `null` passes none, to test that the program refuses it.
+   */
+  reference?: PublicKey | null;
   /** Overrides, to test that the program refuses them. */
   recipient?: PublicKey;
   recipientToken?: PublicKey;
@@ -146,7 +160,7 @@ export async function withdraw(h: Harness, campaign: PublicKey, caller: Keypair,
       mint: state.mint,
       vault: o.vault ?? vaultOf(campaign, state.mint),
       recipientToken: o.recipientToken ?? tokenAccountOf(recipient, state.mint),
-      reference: o.reference ?? null,
+      reference: o.reference === undefined ? state.reference : o.reference,
     })
     .signers([caller])
     .rpc();

@@ -60,4 +60,6 @@ pub struct RecipientUpdated {
     pub campaign: Pubkey,
     pub old_recipient: Pubkey,
     pub new_recipient: Pubkey,
+    pub reference: Option<Pubkey>,
+    pub memo: String,
 }

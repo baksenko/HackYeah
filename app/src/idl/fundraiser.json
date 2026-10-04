@@ -551,6 +551,16 @@
         {
           "name": "image_url",
           "type": "string"
+        },
+        {
+          "name": "reference",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "memo",
+          "type": "string"
         }
       ]
     },
@@ -796,7 +806,8 @@
     {
       "name": "update_recipient",
       "docs": [
-        "Fix the recipient before anyone has contributed. Signer: the organizer."
+        "Fix the recipient (with its Solana Pay reference and memo) before",
+        "anyone has contributed. Signer: the organizer."
       ],
       "discriminator": [
         55,
@@ -852,14 +863,25 @@
         {
           "name": "new_recipient",
           "type": "pubkey"
+        },
+        {
+          "name": "reference",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "memo",
+          "type": "string"
         }
       ]
     },
     {
       "name": "withdraw",
       "docs": [
-        "Pay the whole vault to the stored recipient once the goal is reached,",
-        "even before the deadline. Signer: anyone (permissionless)."
+        "Pay what was raised (the goal) to the stored recipient once the goal",
+        "is reached, even before the deadline. Must carry the campaign's",
+        "Solana Pay reference when it has one. Signer: anyone (permissionless)."
       ],
       "discriminator": [
         183,
@@ -1049,8 +1071,9 @@
         {
           "name": "reference",
           "docs": [
-            "appears in the transaction so a store can find this payout by the",
-            "reference key of its Solana Pay payment request."
+            "campaign stores a Solana Pay reference this must be exactly that",
+            "account (checked in the handler), so the payout transaction is always",
+            "findable by the shop's reference. Otherwise it is optional."
           ],
           "optional": true
         },
@@ -1308,6 +1331,26 @@
       "code": 6025,
       "name": "CampaignCancelled",
       "msg": "The campaign was cancelled; contributors can take their money back"
+    },
+    {
+      "code": 6026,
+      "name": "MemoTooLong",
+      "msg": "Memo must be at most 64 bytes"
+    },
+    {
+      "code": 6027,
+      "name": "ReferenceRequired",
+      "msg": "This payout must carry the campaign's payment reference"
+    },
+    {
+      "code": 6028,
+      "name": "WrongReference",
+      "msg": "This is not the campaign's payment reference"
+    },
+    {
+      "code": 6029,
+      "name": "ExceedsGoal",
+      "msg": "This contribution is more than the amount still needed to reach the goal"
     }
   ],
   "types": [
@@ -1433,6 +1476,25 @@
             "docs": [
               "An `https://` link to a photo hosted elsewhere, or empty. Only the link",
               "is fixed on chain -- whoever hosts the image could still change it."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "reference",
+            "docs": [
+              "Solana Pay: when set, every payout must carry this account (read-only),",
+              "so the shop that asked for the payment can find it by its reference.",
+              "Changeable only together with the recipient, before any contribution."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "memo",
+            "docs": [
+              "Solana Pay: the shop's memo, added to the payout transaction by the",
+              "app. Empty when none. Same change rules as `reference`."
             ],
             "type": "string"
           },
@@ -1627,6 +1689,16 @@
           {
             "name": "new_recipient",
             "type": "pubkey"
+          },
+          {
+            "name": "reference",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "memo",
+            "type": "string"
           }
         ]
       }

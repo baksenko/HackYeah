@@ -26,6 +26,10 @@ export type Campaign = {
   description: string
   /** An `https://` link to a photo hosted elsewhere, or empty. */
   imageUrl: string
+  /** Solana Pay: the shop's payment reference; every payout must carry it. */
+  reference: PublicKey | null
+  /** Solana Pay: the shop's memo, added to the payout; empty when none. */
+  memo: string
   bump: number
 }
 

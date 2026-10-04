@@ -26,6 +26,9 @@ pub const MAX_DESCRIPTION_LEN: usize = 300;
 /// Maximum campaign image link length, in bytes.
 pub const MAX_IMAGE_URL_LEN: usize = 200;
 
+/// Maximum Solana Pay memo length, in bytes.
+pub const MAX_MEMO_LEN: usize = 64;
+
 #[cfg(all(feature = "devnet", feature = "mainnet"))]
 compile_error!("enable at most one of the `devnet` and `mainnet` features");
 

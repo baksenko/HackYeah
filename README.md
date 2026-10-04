@@ -92,12 +92,17 @@ CampaignStatus::Withdrawn => return err!(FundraiserError::AlreadyWithdrawn),
 CampaignStatus::Cancelled => return err!(FundraiserError::CampaignCancelled),
 ```
 
-Withdraw is **permissionless**: whoever calls it pays the fee, and the whole
-vault goes to the stored recipient — never to the caller. So the payout does
-not depend on any one person being around, and it can happen as soon as the
-goal is met, even before the deadline. It also accepts an optional read-only
-`reference` account that does nothing in the program; it only lets a store
-find the payout by its [Solana Pay](https://docs.solanapay.com/spec) reference.
+Withdraw is **permissionless**: whoever calls it pays the fee, and exactly
+what was contributed goes to the stored recipient — never to the caller. So
+the payout does not depend on any one person being around, and it can happen
+as soon as the goal is met, even before the deadline. Contributions are capped
+at the goal (`ExceedsGoal`), so the payout always equals the goal; USDC sent to
+the vault outside `contribute` is never paid out.
+
+When a campaign was created from a shop's [Solana Pay](https://docs.solanapay.com/spec)
+payment request, it stores the request's `reference` and `memo`. Every payout
+must then carry that exact reference account, read-only (`ReferenceRequired`,
+`WrongReference`), so the shop can always find it — whoever triggers it.
 
 ### `refund` — each contributor, their own money, only on failure
 `program/programs/fundraiser/src/instructions/refund.rs`
@@ -169,12 +174,12 @@ public campaigns; it was removed as a privileged key.)
 
 | Instruction | Who may sign | Conditions enforced on chain | Rejects with |
 |---|---|---|---|
-| `create_campaign` | Anyone (becomes the organiser) | mint is the configured USDC; `goal > 0`; `deadline > now`; recipient set; title ≤ 64 bytes; ≤ 5 tags; description ≤ 300 bytes; image link empty or `https://`, ≤ 200 bytes; optional invite key makes it private | `WrongMint`, `InvalidGoal`, `InvalidDeadline`, `InvalidRecipient`, `TitleTooLong`, `TooManyTags`, `DescriptionTooLong`, `ImageUrlTooLong`, `InvalidImageUrl` |
-| `contribute` | Anyone (public) · invite-link holders only (private) | status Active; `now < deadline`; `amount > 0`; recipient unchanged; nickname ≤ 32 bytes; invite co-signs if private | `CampaignNotActive`, `DeadlinePassed`, `InvalidAmount`, `RecipientChanged`, `NicknameTooLong`, `InviteRequired`, `InvalidInvite`, `WrongMint` |
-| `withdraw` | **Anyone** — pays only to `campaign.recipient` | status Succeeded (goal reached); once | `GoalNotReached`, `AlreadyWithdrawn`, `CampaignCancelled`, `NotRecipient` |
+| `create_campaign` | Anyone (becomes the organiser) | mint is the configured USDC; `goal > 0`; `deadline > now`; recipient set; title ≤ 64 bytes; ≤ 5 tags; description ≤ 300 bytes; image link empty or `https://`, ≤ 200 bytes; optional Solana Pay reference and memo (≤ 64 bytes); optional invite key makes it private | `WrongMint`, `InvalidGoal`, `InvalidDeadline`, `InvalidRecipient`, `TitleTooLong`, `TooManyTags`, `DescriptionTooLong`, `ImageUrlTooLong`, `InvalidImageUrl`, `MemoTooLong` |
+| `contribute` | Anyone (public) · invite-link holders only (private) | status Active; `now < deadline`; `0 < amount ≤ goal − raised` (the remaining amount is logged when refused); recipient unchanged; nickname ≤ 32 bytes; invite co-signs if private | `CampaignNotActive`, `DeadlinePassed`, `InvalidAmount`, `ExceedsGoal`, `RecipientChanged`, `NicknameTooLong`, `InviteRequired`, `InvalidInvite`, `WrongMint` |
+| `withdraw` | **Anyone** — pays exactly `total_raised` (= the goal) only to `campaign.recipient` | status Succeeded (goal reached); once; carries the campaign's reference account if it has one | `GoalNotReached`, `AlreadyWithdrawn`, `CampaignCancelled`, `NotRecipient`, `ReferenceRequired`, `WrongReference` |
 | `refund` | **Only the contributor of that receipt** | cancelled, or deadline passed with the goal missed | `DeadlineNotReached`, `GoalReached` |
 | `cancel` | **Only `campaign.organizer`** | status Active (goal not reached) | `NotOrganizer`, `GoalReached`, `CampaignCancelled` |
-| `update_recipient` | **Only `campaign.organizer`** | status Active and nothing raised yet | `NotOrganizer`, `RecipientLocked`, `CampaignNotActive`, `InvalidRecipient` |
+| `update_recipient` | **Only `campaign.organizer`** | status Active and nothing raised yet; sets recipient, reference and memo together | `NotOrganizer`, `RecipientLocked`, `CampaignNotActive`, `InvalidRecipient`, `MemoTooLong` |
 | `close_campaign` | **Only `campaign.organizer`** | paid out, or every refund taken; vault empty | `CampaignNotSettled`, `NotOrganizer` |
 
 `close_campaign` is housekeeping: it returns the organiser's own deposits
@@ -250,13 +255,18 @@ the address. Use *Contribute*.
 
 ### Paying a store
 
-The create form's recipient field also accepts a store's **Solana Pay
-transfer link** (`solana:<recipient>?amount=…&spl-token=…&reference=…`). The
-app takes the recipient from it, offers the amount as the goal when the link
-asks for USDC, and warns when it asks for SOL or another token. The link's
-`reference` is remembered **in the creating browser only** and attached to the
-payout, so the store can find it; a payout triggered from another browser goes
-out without it.
+A shop can send customers to `/create?pay=<url-encoded Solana Pay link>`.
+Recipient, amount (the goal) and order name come from the link and are locked;
+the link's `reference` and `memo` are stored in the campaign, so every payout
+carries them, whoever triggers it. The shop confirms payment by looking up its
+reference and checking that its USDC went up by exactly the order total
+(`app/src/lib/paymentCheck.ts`). `/demo-shop` is a working example.
+
+The create form's recipient field also accepts such a link pasted by hand; the
+app warns when it asks for SOL or another token.
+
+For shops: [docs/MERCHANTS.md](docs/MERCHANTS.md). What this does and does not
+remove the need to trust: [docs/ANALYSIS.md](docs/ANALYSIS.md#shop-payments-what-is-trustless-and-what-is-not).
 
 ### Tags, search and nicknames
 
@@ -568,15 +578,19 @@ fund them with SOL and Circle devnet USDC (above); locally, use the app's
 - **No Solana Pay transaction-request endpoint** (no server by design); the
   share QR can open the page inside Phantom or Solflare instead. See
   [Sharing](#sharing).
-- **Solana Pay references are remembered in one browser only.** A payout
-  triggered elsewhere goes out without the store's reference.
+- **Shops cannot set an expiry.** The customer picks the deadline, and a
+  payout cannot be stopped once the goal is reached. See
+  [MERCHANTS.md](docs/MERCHANTS.md#4-short-checkout-expiry-is-not-supported-directly).
+- **`@solana/pay`'s `validateTransfer` rejects Chip In payouts** (it expects a
+  top-level token transfer); shops verify by balance change instead
+  (`app/src/lib/paymentCheck.ts`).
 - **No "change recipient" button yet.** The program supports correcting the
   recipient before the first contribution; the app does not offer it.
 - **Deposits.** A first contribution's receipt deposit is returned with a
   refund, but stays locked if the goal is reached; `close_campaign` returns
   the organiser's deposits but has no button in the app.
-- **USDC sent directly to a vault** cannot be refunded (no receipt); on
-  success it goes to the recipient with everything else.
+- **USDC sent directly to a vault** is never paid out or refunded (no
+  receipt); it stays in the vault, which then cannot be closed.
 - **A custom RPC URL is treated as a local validator.** `VITE_RPC_ENDPOINT`
   exists for local development; pointing it at a dedicated devnet RPC would
   mislabel the network in the UI.
@@ -584,8 +598,9 @@ fund them with SOL and Circle devnet USDC (above); locally, use the app's
   identity.**
 - **Search runs in the browser.** Past a few thousand campaigns it needs an
   indexer — the `CampaignIndex` interface is where one plugs in.
-- **Fiat off-ramp, a Squads multisig as recipient, and group voting on
-  spending** are out of scope. The recipient can already be any address,
-  including a multisig vault.
+- **Fiat off-ramp and group voting on spending** are out of scope. The
+  recipient can be any address, including a Squads multisig vault, which we
+  recommend for shops ([MERCHANTS.md](docs/MERCHANTS.md#5-recommended-receive-into-a-squads-vault));
+  not yet tested with a real Squads vault.
 - **Not audited.** Devnet, test money, a hackathon project. Do not put real
   money anywhere near this.

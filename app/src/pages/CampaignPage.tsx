@@ -21,11 +21,11 @@ import {
   type Campaign,
   type Contribution,
 } from '../lib/campaign'
-import { buildContributeTransaction } from '../lib/actions'
+import { buildContributeTransaction, buildWithdrawTransaction } from '../lib/actions'
 import { CLUSTER_LABEL } from '../lib/cluster'
 import { PERMISSIONS, whatCanHappenNow } from '../lib/explain'
 import { CONTRIBUTION_ACCOUNT_SPACE, TOKEN_ACCOUNT_SPACE, accountDeposit, networkFee } from '../lib/fees'
-import { formatCountdown, formatDateTime, formatUsdc, parseUsdc } from '../lib/format'
+import { formatCountdown, formatDateTime, formatUsdc, parseUsdc, usdcInputValue } from '../lib/format'
 import { useCampaignIndex } from '../lib/indexer'
 import { buildLeaderboard } from '../lib/leaderboard'
 import {
@@ -36,7 +36,6 @@ import {
   rememberNickname,
 } from '../lib/invite'
 import { USDC_MINT, contributionPda, tokenAccountOf, useProgram, vaultOf } from '../lib/program'
-import { recallReference } from '../lib/solanaPay'
 import { decodeTags } from '../lib/tags'
 import { sendTransaction, type TxOutcome } from '../lib/send'
 import { useChainClock } from '../lib/useChainClock'
@@ -73,7 +72,8 @@ export function CampaignPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [outcome, setOutcome] = useState<TxOutcome | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const [amount, setAmount] = useState('10')
+  /** What the person typed; null until they type, so the box shows what is still needed. */
+  const [amount, setAmount] = useState<string | null>(null)
   const [amountError, setAmountError] = useState<string | null>(null)
   const [nickname, setNickname] = useState(recallNickname)
   const [pending, setPending] = useState<Pending | null>(null)
@@ -178,6 +178,8 @@ export function CampaignPage() {
         pending.options,
       )
       setOutcome(result)
+      // After a contribution, offer the new remaining amount again.
+      if (pending.key === 'contribute' && result.kind === 'success') setAmount(null)
       setPending(null)
       await load()
     } catch (error) {
@@ -196,6 +198,11 @@ export function CampaignPage() {
   const recipientKey = campaign.recipient
   const recipientAddress = recipientKey.toBase58()
   const deadline = campaign.deadline.toNumber()
+  const raisedUnits = BigInt(campaign.totalRaised.toString())
+  // Contributions stop exactly at the goal (the program refuses more).
+  const remainingUnits = BigInt(campaign.goal.toString()) - raisedUnits
+  const amountText = amount ?? (remainingUnits > 0n ? usdcInputValue(remainingUnits) : '')
+  const hasShopReference = campaign.reference !== null
 
   // This campaign's own leaderboard: the same ranking as the global one,
   // counting only this campaign's receipts. Refunded receipts are gone already.
@@ -238,23 +245,18 @@ export function CampaignPage() {
 
   /**
    * Permissionless: whoever signs, the money only ever goes to the stored
-   * recipient. Only a real payout carries the Solana Pay reference -- the demo
-   * must not show up in a store's search for its payment.
+   * recipient. A real payout carries the shop's reference and memo stored on
+   * the campaign; the demo carries neither, so it never shows up in a shop's
+   * search for its payment (the program refuses it on the goal first).
    */
-  const buildWithdraw = async (withReference = true) =>
-    program.methods
-      .withdraw()
-      .accountsPartial({
-        caller: me!,
-        campaign: campaign.address,
-        recipient: campaign.recipient,
-        mint: USDC_MINT,
-        vault,
-        recipientToken: tokenAccountOf(campaign.recipient),
-        // Attached when this browser created the campaign from a Solana Pay link.
-        reference: withReference ? recallReference(campaign.address) : null,
-      })
-      .transaction()
+  const buildWithdraw = async (forReal = true) =>
+    buildWithdrawTransaction(program, {
+      campaign: campaign.address,
+      recipient: campaign.recipient,
+      caller: me!,
+      reference: forReal ? campaign.reference : null,
+      memo: forReal ? campaign.memo : '',
+    })
 
   const buildRefund = async () =>
     program.methods
@@ -276,9 +278,13 @@ export function CampaignPage() {
     setAmountError(null)
     let units: BN
     try {
-      units = parseUsdc(amount)
+      units = parseUsdc(amountText)
     } catch (e) {
       setAmountError(e instanceof Error ? e.message : 'Enter a valid amount.')
+      return
+    }
+    if (BigInt(units.toString()) > remainingUnits) {
+      setAmountError(`Only ${formatUsdc(remainingUnits)} is still needed to reach the goal. Contribute that much or less.`)
       return
     }
     const name = nickname.trim()
@@ -327,8 +333,9 @@ export function CampaignPage() {
 
   function onWithdraw() {
     void review('withdraw', () => buildWithdraw(), async (networkCost) => {
-      // The payout is the whole vault, read from chain.
-      const held = BigInt((await connection.getTokenAccountBalance(vault, 'confirmed')).value.amount)
+      // The program pays exactly what was contributed (the goal), never the
+      // vault balance -- USDC sent to the vault directly is not paid out.
+      const held = raisedUnits
       return {
         heading: 'Review: send the money to the recipient',
         parties: [
@@ -350,6 +357,9 @@ export function CampaignPage() {
             ? `${formatUsdc(held)} comes to you.`
             : `${formatUsdc(held)} goes to the recipient above. You pay only the network fee; none of the money passes through your wallet.`,
           'This is final. The program records the payout and refuses a second one.',
+          ...(hasShopReference
+            ? ["It carries the shop's payment reference, so the shop can confirm it has been paid."]
+            : []),
         ],
         confirmLabel: `Send ${formatUsdc(held)} to the recipient`,
       }
@@ -569,7 +579,7 @@ export function CampaignPage() {
               <label>
                 <span>Amount in USDC</span>
                 <input
-                  value={amount}
+                  value={amountText}
                   onChange={(e) => setAmount(e.target.value)}
                   inputMode="decimal"
                   disabled={pending !== null}
@@ -583,6 +593,9 @@ export function CampaignPage() {
                 {buttonLabel('contribute', 'Contribute')}
               </button>
             </div>
+            <p className="aside">
+              {formatUsdc(remainingUnits)} is still needed. Contributions stop exactly at the goal.
+            </p>
             {amountError && <p className="notice notice-error">{amountError}</p>}
             {myContribution && (
               <p className="aside">

@@ -557,6 +557,16 @@ export type Fundraiser = {
         {
           "name": "imageUrl",
           "type": "string"
+        },
+        {
+          "name": "reference",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "memo",
+          "type": "string"
         }
       ]
     },
@@ -802,7 +812,8 @@ export type Fundraiser = {
     {
       "name": "updateRecipient",
       "docs": [
-        "Fix the recipient before anyone has contributed. Signer: the organizer."
+        "Fix the recipient (with its Solana Pay reference and memo) before",
+        "anyone has contributed. Signer: the organizer."
       ],
       "discriminator": [
         55,
@@ -858,14 +869,25 @@ export type Fundraiser = {
         {
           "name": "newRecipient",
           "type": "pubkey"
+        },
+        {
+          "name": "reference",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "memo",
+          "type": "string"
         }
       ]
     },
     {
       "name": "withdraw",
       "docs": [
-        "Pay the whole vault to the stored recipient once the goal is reached,",
-        "even before the deadline. Signer: anyone (permissionless)."
+        "Pay what was raised (the goal) to the stored recipient once the goal",
+        "is reached, even before the deadline. Must carry the campaign's",
+        "Solana Pay reference when it has one. Signer: anyone (permissionless)."
       ],
       "discriminator": [
         183,
@@ -1055,8 +1077,9 @@ export type Fundraiser = {
         {
           "name": "reference",
           "docs": [
-            "appears in the transaction so a store can find this payout by the",
-            "reference key of its Solana Pay payment request."
+            "campaign stores a Solana Pay reference this must be exactly that",
+            "account (checked in the handler), so the payout transaction is always",
+            "findable by the shop's reference. Otherwise it is optional."
           ],
           "optional": true
         },
@@ -1314,6 +1337,26 @@ export type Fundraiser = {
       "code": 6025,
       "name": "campaignCancelled",
       "msg": "The campaign was cancelled; contributors can take their money back"
+    },
+    {
+      "code": 6026,
+      "name": "memoTooLong",
+      "msg": "Memo must be at most 64 bytes"
+    },
+    {
+      "code": 6027,
+      "name": "referenceRequired",
+      "msg": "This payout must carry the campaign's payment reference"
+    },
+    {
+      "code": 6028,
+      "name": "wrongReference",
+      "msg": "This is not the campaign's payment reference"
+    },
+    {
+      "code": 6029,
+      "name": "exceedsGoal",
+      "msg": "This contribution is more than the amount still needed to reach the goal"
     }
   ],
   "types": [
@@ -1439,6 +1482,25 @@ export type Fundraiser = {
             "docs": [
               "An `https://` link to a photo hosted elsewhere, or empty. Only the link",
               "is fixed on chain -- whoever hosts the image could still change it."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "reference",
+            "docs": [
+              "Solana Pay: when set, every payout must carry this account (read-only),",
+              "so the shop that asked for the payment can find it by its reference.",
+              "Changeable only together with the recipient, before any contribution."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "memo",
+            "docs": [
+              "Solana Pay: the shop's memo, added to the payout transaction by the",
+              "app. Empty when none. Same change rules as `reference`."
             ],
             "type": "string"
           },
@@ -1633,6 +1695,16 @@ export type Fundraiser = {
           {
             "name": "newRecipient",
             "type": "pubkey"
+          },
+          {
+            "name": "reference",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "memo",
+            "type": "string"
           }
         ]
       }

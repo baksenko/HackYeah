@@ -23,16 +23,31 @@ describe("create_campaign input limits", () => {
     description: "d".repeat(300),
     imageUrl: "https://example.org/" + "a".repeat(200 - "https://example.org/".length),
     tags: 0b11111,
+    reference: Keypair.generate().publicKey,
+    memo: "m".repeat(64),
   };
 
   it("fits a maximum-size public and private campaign in one transaction", async () => {
+    // Sent the way a real wallet sends it: the organizer pays the fee, so it
+    // is the only signer. (The harness's own fee payer would add a second
+    // signature that no real user has.)
     const h = createHarness();
-    for (const invite of [undefined, Keypair.generate().publicKey]) {
-      const { campaign } = await createCampaign(h, { organizer: h.wallet(), invite, ...maxed });
+    for (const invite of [null, Keypair.generate().publicKey]) {
+      const organizer = h.wallet();
+      const id = new anchor.BN(500 + (invite ? 1 : 0));
+      const campaign = campaignPda(h, organizer.publicKey, id);
+      const tx = await h.program.methods
+        .createCampaign(id, maxed.title, new anchor.BN(1), new anchor.BN(h.now() + 3600), organizer.publicKey,
+          invite, maxed.tags, maxed.description, maxed.imageUrl, maxed.reference, maxed.memo)
+        .accountsPartial({ organizer: organizer.publicKey, campaign })
+        .transaction();
+      tx.feePayer = organizer.publicKey;
+      await h.provider.sendAndConfirm(tx, [organizer]);
       const s = await h.program.account.campaign.fetch(campaign);
       assert.equal(s.title.length, 64);
       assert.equal(s.description.length, 300);
       assert.equal(s.imageUrl.length, 200);
+      assert.equal(s.memo.length, 64);
     }
   });
 
@@ -43,7 +58,7 @@ describe("create_campaign input limits", () => {
     const campaign = campaignPda(h, organizer.publicKey, id);
     const tx = await h.program.methods
       .createCampaign(id, maxed.title, new anchor.BN(1), new anchor.BN(h.now() + 3600), organizer.publicKey,
-        Keypair.generate().publicKey, maxed.tags, maxed.description, maxed.imageUrl)
+        Keypair.generate().publicKey, maxed.tags, maxed.description, maxed.imageUrl, maxed.reference, maxed.memo)
       .accountsPartial({ organizer: organizer.publicKey, campaign })
       .transaction();
     tx.feePayer = organizer.publicKey;

@@ -58,7 +58,7 @@ describe("contribute", () => {
     const { h, campaign, contributor } = await setup(100);
 
     await contribute(h, campaign, contributor, 60 * USDC);
-    await contribute(h, campaign, contributor, 45 * USDC); // 105 >= 100
+    await contribute(h, campaign, contributor, 40 * USDC); // exactly the goal
 
     const state = await h.program.account.campaign.fetch(campaign);
     assert.deepEqual(state.status, { succeeded: {} });

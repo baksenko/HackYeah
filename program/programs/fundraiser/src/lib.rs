@@ -41,6 +41,8 @@ pub mod fundraiser {
         tags: u32,
         description: String,
         image_url: String,
+        reference: Option<Pubkey>,
+        memo: String,
     ) -> Result<()> {
         instructions::create_campaign::handle_create_campaign(
             ctx,
@@ -53,12 +55,20 @@ pub mod fundraiser {
             tags,
             description,
             image_url,
+            reference,
+            memo,
         )
     }
 
-    /// Fix the recipient before anyone has contributed. Signer: the organizer.
-    pub fn update_recipient(ctx: Context<UpdateRecipient>, new_recipient: Pubkey) -> Result<()> {
-        instructions::update_recipient::handle_update_recipient(ctx, new_recipient)
+    /// Fix the recipient (with its Solana Pay reference and memo) before
+    /// anyone has contributed. Signer: the organizer.
+    pub fn update_recipient(
+        ctx: Context<UpdateRecipient>,
+        new_recipient: Pubkey,
+        reference: Option<Pubkey>,
+        memo: String,
+    ) -> Result<()> {
+        instructions::update_recipient::handle_update_recipient(ctx, new_recipient, reference, memo)
     }
 
     /// Put USDC in. Signer: anyone while Active and before the deadline; for
@@ -73,8 +83,9 @@ pub mod fundraiser {
         instructions::contribute::handle_contribute(ctx, amount, nickname, expected_recipient)
     }
 
-    /// Pay the whole vault to the stored recipient once the goal is reached,
-    /// even before the deadline. Signer: anyone (permissionless).
+    /// Pay what was raised (the goal) to the stored recipient once the goal
+    /// is reached, even before the deadline. Must carry the campaign's
+    /// Solana Pay reference when it has one. Signer: anyone (permissionless).
     pub fn withdraw(ctx: Context<Withdraw>) -> Result<()> {
         instructions::withdraw::handle_withdraw(ctx)
     }

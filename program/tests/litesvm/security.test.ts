@@ -44,7 +44,7 @@ describe("security: the brief's scenarios", () => {
     await contribute(h, campaign, a, 100 * USDC);
     await contribute(h, campaign, b, 120 * USDC);
     assert.equal(await statusOf(h, campaign), "active");
-    await contribute(h, campaign, c, 90 * USDC); // 310 >= 300
+    await contribute(h, campaign, c, 80 * USDC); // exactly 300
     const last = h.events()[0];
     assert.equal(last.name, "contributed");
     assert.equal(last.data.goalReached, true);
@@ -52,7 +52,7 @@ describe("security: the brief's scenarios", () => {
 
     await withdraw(h, campaign, h.wallet());
     assert.equal(h.events()[0].name, "withdrawn");
-    assert.equal(balanceOf(h, recipient), BigInt(310 * USDC));
+    assert.equal(balanceOf(h, recipient), BigInt(300 * USDC));
     assert.equal(h.tokenBalance(vault), 0n);
     assert.equal(await statusOf(h, campaign), "withdrawn");
   });
@@ -165,12 +165,12 @@ describe("security: money is conserved", () => {
     const recipient = Keypair.generate().publicKey;
     const { campaign } = await createCampaign(h, { organizer: h.wallet(), recipient, goalUsdc: 200 });
     const contributors = people(h, 4);
-    const paid = [30, 70, 55, 60]; // 215
+    const paid = [30, 70, 55, 45]; // exactly the goal of 200
     for (const [i, c] of contributors.entries()) await contribute(h, campaign, c, paid[i] * USDC);
     await withdraw(h, campaign, h.wallet());
 
     const spent = contributors.reduce((sum, c) => sum + (BigInt(START_USDC * USDC) - balanceOf(h, c.publicKey)), 0n);
-    assert.equal(spent, BigInt(215 * USDC));
+    assert.equal(spent, BigInt(200 * USDC));
     assert.equal(balanceOf(h, recipient), spent);
   });
 
@@ -195,8 +195,8 @@ describe("security: money is conserved", () => {
     assert.equal(h.tokenBalance(vault), 0n);
   });
 
-  it("tokens sent straight to a vault go to the recipient on success, and block closing otherwise", async () => {
-    // Success: withdraw sweeps the whole vault, stray tokens included.
+  it("tokens sent straight to a vault are never paid out, and block closing it", async () => {
+    // Success: the payout is exactly what was contributed; stray tokens stay.
     const h = createHarness();
     const organizer = h.wallet();
     const recipient = Keypair.generate().publicKey;
@@ -205,7 +205,8 @@ describe("security: money is conserved", () => {
     await contribute(h, won.campaign, a, 10 * USDC);
     h.fundTokens(won.campaign, 15 * USDC); // overwrite the vault: 10 contributed + 5 sent directly
     await withdraw(h, won.campaign, h.wallet());
-    assert.equal(balanceOf(h, recipient), BigInt(15 * USDC));
+    assert.equal(balanceOf(h, recipient), BigInt(10 * USDC));
+    assert.equal(h.tokenBalance(won.vault), BigInt(5 * USDC));
 
     // Failure: after every refund, stray tokens keep the vault non-empty, so
     // close_campaign is refused instead of the tokens being lost.

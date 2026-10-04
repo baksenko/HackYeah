@@ -1,5 +1,5 @@
 import type { BN } from '@coral-xyz/anchor'
-import type { PublicKey, Transaction } from '@solana/web3.js'
+import { PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js'
 
 import { USDC_MINT, contributionPda, tokenAccountOf, vaultOf, type FundraiserProgram } from './program'
 
@@ -43,4 +43,47 @@ export function buildContributeTransaction(program: FundraiserProgram, args: Con
       invite: args.invite,
     })
     .transaction()
+}
+
+/** The SPL Memo program (v2). An instruction with no accounts just records its text. */
+export const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr')
+
+export type WithdrawArgs = {
+  campaign: PublicKey
+  recipient: PublicKey
+  /** Whoever triggers the payout; pays the fee, receives nothing. */
+  caller: PublicKey
+  /** The campaign's stored Solana Pay reference; the program requires it when set. */
+  reference: PublicKey | null
+  /** The campaign's stored Solana Pay memo; empty for none. */
+  memo: string
+}
+
+/**
+ * Builds an unsigned payout. When the campaign came from a shop's Solana Pay
+ * request it carries that request's reference (the program refuses the
+ * payout without it) and, if the request had a memo, an SPL Memo instruction
+ * placed immediately before the payout -- where Solana Pay expects the memo
+ * relative to the transfer.
+ */
+export async function buildWithdrawTransaction(program: FundraiserProgram, args: WithdrawArgs): Promise<Transaction> {
+  const withdraw = await program.methods
+    .withdraw()
+    .accountsPartial({
+      caller: args.caller,
+      campaign: args.campaign,
+      recipient: args.recipient,
+      mint: USDC_MINT,
+      vault: vaultOf(args.campaign),
+      recipientToken: tokenAccountOf(args.recipient),
+      reference: args.reference,
+    })
+    .instruction()
+  const transaction = new Transaction()
+  if (args.memo) {
+    transaction.add(
+      new TransactionInstruction({ programId: MEMO_PROGRAM_ID, keys: [], data: Buffer.from(args.memo, 'utf8') }),
+    )
+  }
+  return transaction.add(withdraw)
 }

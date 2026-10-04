@@ -14,6 +14,7 @@ export const CONTRIBUTION_SEED = Buffer.from('contribution')
 export const MAX_TITLE_BYTES = 64
 export const MAX_DESCRIPTION_BYTES = 300
 export const MAX_IMAGE_URL_BYTES = 200
+export const MAX_MEMO_BYTES = 64
 
 /**
  * The only token campaigns raise, as built into the deployed program

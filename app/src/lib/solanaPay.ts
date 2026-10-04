@@ -15,6 +15,8 @@ export type PaymentRequest = {
   references: PublicKey[]
   label: string | null
   message: string | null
+  /** Must appear in the payment transaction as an SPL Memo instruction. */
+  memo: string | null
 }
 
 export const looksLikeSolanaPay = (text: string) => text.trim().toLowerCase().startsWith('solana:')
@@ -62,30 +64,66 @@ export function parseSolanaPayUrl(text: string): PaymentRequest {
     }),
     label: params.get('label'),
     message: params.get('message'),
+    memo: params.get('memo'),
   }
 }
 
-const referenceKey = (campaign: PublicKey) => `chipin:reference:${campaign.toBase58()}`
+/** What a shop's link sets on a campaign, ready to lock in the create form. */
+export type ShopRequest = {
+  /** The link itself; goes in the recipient field, so the usual parsing applies. */
+  link: string
+  request: PaymentRequest
+  /** From the shop's label, cut to the program's title limit. */
+  title: string
+  /** The order amount as typed in the link, e.g. "42.50". */
+  amount: string
+}
+
+/** Cuts text to at most `maxBytes` of UTF-8 without splitting a character. */
+function cutToBytes(text: string, maxBytes: number): string {
+  let out = ''
+  for (const ch of text) {
+    if (new TextEncoder().encode(out + ch).length > maxBytes) break
+    out += ch
+  }
+  return out
+}
 
 /**
- * Remembers a payment request's reference for a campaign, in this browser
- * only. The program does not store it; `withdraw` simply carries it so the
- * store can find the payout. Anyone can trigger the payout, so a payout from
- * another browser just goes out without it.
+ * Checks a shop's Solana Pay transfer link for the merchant entry point
+ * (/create?pay=...). Returns what it sets, or a plain-language reason the
+ * order cannot be paid with Chip In.
  */
-export function rememberReference(campaign: PublicKey, reference: PublicKey) {
+export function readShopRequest(
+  link: string,
+  usdcMint: PublicKey,
+  limits: { titleBytes: number; memoBytes: number },
+): ShopRequest | { error: string } {
+  let request: PaymentRequest
   try {
-    localStorage.setItem(referenceKey(campaign), reference.toBase58())
-  } catch {
-    // Storage blocked: the payout still works, only without the reference.
+    request = parseSolanaPayUrl(link)
+  } catch (e) {
+    return { error: `The shop's payment link could not be read: ${e instanceof Error ? e.message : 'it is not valid.'}` }
   }
-}
-
-export function recallReference(campaign: PublicKey): PublicKey | null {
-  try {
-    const value = localStorage.getItem(referenceKey(campaign))
-    return value ? new PublicKey(value) : null
-  } catch {
-    return null
+  if (!request.splToken) {
+    return {
+      error:
+        'This shop asks to be paid in SOL. Chip In collects USDC only, so it cannot pay this order. Ask the shop for a USDC payment link.',
+    }
   }
+  if (!request.splToken.equals(usdcMint)) {
+    return {
+      error:
+        'This shop asks to be paid in a token other than USDC. Chip In collects USDC only, so it cannot pay this order. Ask the shop for a USDC payment link.',
+    }
+  }
+  if (!request.amount) return { error: "The shop's payment link does not say how much to pay." }
+  if (!/^\d+(\.\d{1,6})?$/.test(request.amount) || Number(request.amount) <= 0) {
+    return { error: `The shop's amount (${request.amount}) is not a valid USDC amount.` }
+  }
+  if (request.memo && new TextEncoder().encode(request.memo).length > limits.memoBytes) {
+    return { error: `The shop's memo is longer than ${limits.memoBytes} bytes, which campaigns cannot store.` }
+  }
+  const label = request.label?.trim() || `Payment to ${request.recipient.toBase58().slice(0, 4)}…`
+  return { link, request, title: cutToBytes(label, limits.titleBytes), amount: request.amount }
 }

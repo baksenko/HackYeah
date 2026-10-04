@@ -23,6 +23,16 @@ export function formatUsdc(baseUnits: BN | number | bigint, maxDecimals = 2): st
 }
 
 /**
+ * USDC base units as a plain decimal for an input box: "12.5", "1000" --
+ * no thousands separators and no unit, so parseUsdc reads it back exactly.
+ */
+export function usdcInputValue(baseUnits: BN | bigint): string {
+  const value = toBigInt(baseUnits)
+  const fraction = (value % USDC_UNIT).toString().padStart(USDC_DECIMALS, '0').replace(/0+$/, '')
+  return `${value / USDC_UNIT}${fraction ? `.${fraction}` : ''}`
+}
+
+/**
  * Parses what a person typed ("12", "12.5", "0,25") into USDC base units.
  * Exact, so 0.1 is 100000 and never 99999.
  */
