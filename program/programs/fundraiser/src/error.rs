@@ -62,4 +62,8 @@ pub enum FundraiserError {
     WrongReference,
     #[msg("This contribution is more than the amount still needed to reach the goal")]
     ExceedsGoal,
+    #[msg("This contribution completes a shop order, so it must pay the shop in the same transaction")]
+    PayoutAccountsRequired,
+    #[msg("That token account does not belong to the campaign's recipient")]
+    WrongRecipientAccount,
 }

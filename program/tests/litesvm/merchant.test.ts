@@ -36,36 +36,69 @@ describe("shop payments (Solana Pay reference and memo)", () => {
     assert.equal(state.memo, "order-1042");
   });
 
-  it("a random wallet's payout carries the reference and pays the shop exactly the goal", async () => {
+  it("the contribution that completes the order pays the shop in the same transaction", async () => {
     const { h, shop, reference, campaign, vault, friends } = await shopCampaign();
-    await contribute(h, campaign, friends[0], 30 * USDC);
-    await contribute(h, campaign, friends[1], 20 * USDC); // exactly the rest
-    assert.equal(await statusOf(h, campaign), "succeeded");
+    await contribute(h, campaign, friends[0], 30 * USDC, { payout: true }); // not complete: nothing paid
+    assert.equal(await statusOf(h, campaign), "active");
+    assert.equal(h.tokenBalance(vault), BigInt(30 * USDC));
 
-    await withdraw(h, campaign, h.wallet()); // fixture passes the stored reference
-    const [event] = h.events();
-    assert.equal(event.name, "withdrawn");
-    assert.ok(event.data.reference.equals(reference));
+    await contribute(h, campaign, friends[1], 20 * USDC, { payout: true }); // exactly the rest
+    assert.equal(await statusOf(h, campaign), "withdrawn", "paid out with no separate step");
     assert.equal(h.tokenBalance(tokenAccountOf(shop)), BigInt(50 * USDC));
     assert.equal(h.tokenBalance(vault), 0n);
+
+    const withdrawn = h.events().find((e) => e.name === "withdrawn")!;
+    assert.ok(withdrawn.data.reference.equals(reference), "the payout carries the order reference");
+    assert.ok(withdrawn.data.caller.equals(friends[1].publicKey));
+    await expectError(withdraw(h, campaign, h.wallet()), "AlreadyWithdrawn");
   });
 
-  it("refuses a payout without the reference, or with a different one", async () => {
+  it("refuses to complete a shop order without paying the shop", async () => {
     const { h, campaign, vault, friends } = await shopCampaign();
-    await contribute(h, campaign, friends[0], 50 * USDC);
-    await expectError(withdraw(h, campaign, h.wallet(), { reference: null }), "ReferenceRequired");
+    await expectError(contribute(h, campaign, friends[0], 50 * USDC), "PayoutAccountsRequired");
+    assert.equal(h.tokenBalance(vault), 0n, "the whole contribution was rolled back");
+    assert.equal(await statusOf(h, campaign), "active");
+  });
+
+  it("refuses a completing payout without the reference, or with a different one", async () => {
+    const { h, campaign, vault, friends } = await shopCampaign();
     await expectError(
-      withdraw(h, campaign, h.wallet(), { reference: Keypair.generate().publicKey }),
+      contribute(h, campaign, friends[0], 50 * USDC, { payout: true, payoutReference: null }),
+      "ReferenceRequired"
+    );
+    await expectError(
+      contribute(h, campaign, friends[0], 50 * USDC, { payout: true, payoutReference: Keypair.generate().publicKey }),
       "WrongReference"
     );
-    assert.equal(h.tokenBalance(vault), BigInt(50 * USDC), "nothing left the vault");
+    assert.equal(h.tokenBalance(vault), 0n, "nothing moved");
+  });
+
+  it("refuses to pay a completing contribution to anyone but the shop", async () => {
+    const { h, campaign, friends } = await shopCampaign();
+    const thief = h.wallet();
+    h.fundTokens(thief.publicKey, 0);
+    await expectError(
+      contribute(h, campaign, friends[0], 50 * USDC, {
+        payout: true,
+        payoutRecipient: thief.publicKey,
+        payoutRecipientToken: tokenAccountOf(thief.publicKey),
+      }),
+      "NotRecipient"
+    );
+    await expectError(
+      contribute(h, campaign, friends[0], 50 * USDC, {
+        payout: true,
+        payoutRecipientToken: tokenAccountOf(thief.publicKey),
+      }),
+      "WrongRecipientAccount"
+    );
   });
 
   it("refuses a contribution over the remaining amount, and says how much remains", async () => {
     const { h, campaign, friends } = await shopCampaign();
     await contribute(h, campaign, friends[0], 30 * USDC);
     try {
-      await contribute(h, campaign, friends[1], 25 * USDC); // 20 remain
+      await contribute(h, campaign, friends[1], 25 * USDC, { payout: true }); // 20 remain
       assert.fail("expected ExceedsGoal");
     } catch (e: any) {
       const text = [e.error?.errorCode?.code, e.message, ...(e.logs ?? e.transactionLogs ?? [])].join(" ");
@@ -75,20 +108,11 @@ describe("shop payments (Solana Pay reference and memo)", () => {
     assert.equal((await h.program.account.campaign.fetch(campaign)).totalRaised.toNumber(), 30 * USDC);
   });
 
-  it("an exact final contribution flips the campaign to Succeeded", async () => {
-    const { h, campaign, friends } = await shopCampaign();
-    await contribute(h, campaign, friends[0], 49 * USDC);
-    assert.equal(await statusOf(h, campaign), "active");
-    await contribute(h, campaign, friends[1], 1 * USDC);
-    assert.equal(await statusOf(h, campaign), "succeeded");
-    assert.equal(h.events()[0].data.goalReached, true);
-  });
-
   it("pays exactly the goal even when USDC was sent straight to the vault", async () => {
     const { h, shop, campaign, vault, friends } = await shopCampaign();
-    await contribute(h, campaign, friends[0], 50 * USDC);
-    h.fundTokens(campaign, 57 * USDC); // the vault now holds 7 USDC that is not a contribution
-    await withdraw(h, campaign, h.wallet());
+    await contribute(h, campaign, friends[0], 30 * USDC);
+    h.fundTokens(campaign, 37 * USDC); // the vault now holds 7 USDC that is not a contribution
+    await contribute(h, campaign, friends[1], 20 * USDC, { payout: true });
     assert.equal(h.tokenBalance(tokenAccountOf(shop)), BigInt(50 * USDC));
     assert.equal(h.tokenBalance(vault), BigInt(7 * USDC), "stray tokens stay in the vault");
   });
@@ -131,5 +155,28 @@ describe("shop payments (Solana Pay reference and memo)", () => {
     await contribute(h, campaign, friend, 10 * USDC);
     await withdraw(h, campaign, h.wallet(), { reference: Keypair.generate().publicKey });
     assert.equal(h.tokenBalance(tokenAccountOf(recipient)), BigInt(10 * USDC));
+  });
+
+  it("a friends' campaign also pays out at once when the payout accounts come along", async () => {
+    const h = createHarness();
+    const anna = Keypair.generate().publicKey;
+    const { campaign } = await createCampaign(h, { organizer: h.wallet(), recipient: anna, goalUsdc: 10 });
+    const friend = h.wallet();
+    h.fundTokens(friend.publicKey, 10 * USDC);
+    await contribute(h, campaign, friend, 10 * USDC, { payout: true });
+    assert.equal(await statusOf(h, campaign), "withdrawn");
+    assert.equal(h.tokenBalance(tokenAccountOf(anna)), BigInt(10 * USDC));
+  });
+
+  it("a friends' campaign completed without payout accounts waits for a withdraw", async () => {
+    const h = createHarness();
+    const anna = Keypair.generate().publicKey;
+    const { campaign } = await createCampaign(h, { organizer: h.wallet(), recipient: anna, goalUsdc: 10 });
+    const friend = h.wallet();
+    h.fundTokens(friend.publicKey, 10 * USDC);
+    await contribute(h, campaign, friend, 10 * USDC);
+    assert.equal(await statusOf(h, campaign), "succeeded");
+    await withdraw(h, campaign, h.wallet());
+    assert.equal(h.tokenBalance(tokenAccountOf(anna)), BigInt(10 * USDC));
   });
 });

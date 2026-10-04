@@ -1,6 +1,6 @@
 // Shared builders for program calls, so every suite creates campaigns and
 // derives addresses the same way.
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { Keypair, PublicKey } from "@solana/web3.js";
 
 import { anchor, Harness, TEST_USDC_MINT, USDC } from "./harness";
@@ -103,6 +103,17 @@ export type ContributeOptions = {
   mint?: PublicKey;
   contributorToken?: PublicKey;
   vault?: PublicKey;
+  /**
+   * Pass the payout accounts (as the app does), so the contribution that
+   * completes the goal pays the recipient in the same transaction. The
+   * recipient's token account is created idempotently in that transaction.
+   */
+  payout?: boolean;
+  /** Payout overrides, to test that the program refuses them. */
+  payoutRecipient?: PublicKey;
+  payoutRecipientToken?: PublicKey;
+  /** Defaults to the stored reference; `null` passes none. */
+  payoutReference?: PublicKey | null;
 };
 
 /** The contributor's own USDC account (the one `fundTokens` creates). */
@@ -117,9 +128,23 @@ export async function contribute(
   amount: number | bigint,
   o: ContributeOptions = {}
 ) {
-  const expectedRecipient =
-    o.expectedRecipient ?? (await h.program.account.campaign.fetch(campaign)).recipient;
+  const state = await h.program.account.campaign.fetch(campaign);
+  const expectedRecipient = o.expectedRecipient ?? state.recipient;
   const mint = o.mint ?? TEST_USDC_MINT;
+
+  const recipient = o.payout ? o.payoutRecipient ?? state.recipient : null;
+  const recipientToken = o.payout ? o.payoutRecipientToken ?? tokenAccountOf(state.recipient, mint) : null;
+  const pre = o.payout
+    ? [
+        createAssociatedTokenAccountIdempotentInstruction(
+          contributor.publicKey,
+          tokenAccountOf(state.recipient, mint),
+          state.recipient,
+          mint
+        ),
+      ]
+    : [];
+
   return h.program.methods
     .contribute(new BN(amount.toString()), o.nickname ?? "", expectedRecipient)
     .accountsPartial({
@@ -130,7 +155,11 @@ export async function contribute(
       contributorToken: o.contributorToken ?? tokenAccountOf(contributor.publicKey, mint),
       vault: o.vault ?? vaultOf(campaign, mint),
       invite: o.invite?.publicKey ?? null,
+      recipient,
+      recipientToken,
+      reference: o.payout ? (o.payoutReference === undefined ? state.reference : o.payoutReference) : null,
     })
+    .preInstructions(pre)
     .signers(o.invite ? [contributor, o.invite] : [contributor])
     .rpc();
 }

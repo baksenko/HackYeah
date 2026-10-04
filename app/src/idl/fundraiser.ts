@@ -365,6 +365,36 @@ export type Fundraiser = {
           "optional": true
         },
         {
+          "name": "recipient",
+          "docs": [
+            "The next three are only for the contribution that completes the goal:",
+            "with them, that same contribution pays the recipient at once, so the",
+            "money reaches the shop (or friend) the moment the goal is hit, with no",
+            "one having to press \"pay out\". Required when the campaign is a shop",
+            "order (it stores a payment reference).",
+            "",
+            "identifies who the money is for. Never signs."
+          ],
+          "optional": true
+        },
+        {
+          "name": "recipientToken",
+          "docs": [
+            "The recipient's token account for the campaign's mint. Must already",
+            "exist: the app creates it in the same transaction if needed. Owner and",
+            "mint are checked in the handler."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reference",
+          "docs": [
+            "stored Solana Pay reference, so the shop can find the payment."
+          ],
+          "optional": true
+        },
+        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -1357,6 +1387,16 @@ export type Fundraiser = {
       "code": 6029,
       "name": "exceedsGoal",
       "msg": "This contribution is more than the amount still needed to reach the goal"
+    },
+    {
+      "code": 6030,
+      "name": "payoutAccountsRequired",
+      "msg": "This contribution completes a shop order, so it must pay the shop in the same transaction"
+    },
+    {
+      "code": 6031,
+      "name": "wrongRecipientAccount",
+      "msg": "That token account does not belong to the campaign's recipient"
     }
   ],
   "types": [

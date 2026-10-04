@@ -1,13 +1,14 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{self, Mint, Token, TokenAccount, TransferChecked},
+    token::{Mint, Token, TokenAccount},
 };
 
 use crate::{
     constants::*,
     error::FundraiserError,
     events::Withdrawn,
+    payout::{check_reference, pay_out},
     state::{Campaign, CampaignStatus},
 };
 
@@ -68,7 +69,7 @@ pub struct Withdraw<'info> {
 /// at it -- to the recipient once the goal has been reached, possibly before
 /// the deadline. Possible exactly once. Tokens sent to the vault directly,
 /// outside `contribute`, are not part of the payout.
-pub fn handle_withdraw(ctx: Context<Withdraw>) -> Result<()> {
+pub fn handle_withdraw(mut ctx: Context<Withdraw>) -> Result<()> {
     match ctx.accounts.campaign.status {
         CampaignStatus::Succeeded => {}
         CampaignStatus::Active => return err!(FundraiserError::GoalNotReached),
@@ -76,54 +77,25 @@ pub fn handle_withdraw(ctx: Context<Withdraw>) -> Result<()> {
         CampaignStatus::Cancelled => return err!(FundraiserError::CampaignCancelled),
     }
 
-    let campaign = &ctx.accounts.campaign;
-
     // A payment request's reference must ride along, so the shop can find
-    // this payout. Anyone can supply it: it is public in the campaign.
-    if let Some(expected) = campaign.reference {
-        let reference = ctx
-            .accounts
-            .reference
-            .as_ref()
-            .ok_or(FundraiserError::ReferenceRequired)?;
-        require_keys_eq!(reference.key(), expected, FundraiserError::WrongReference);
-    }
+    // this payout.
+    check_reference(&ctx.accounts.campaign, ctx.accounts.reference.as_ref())?;
 
     // Exactly what was contributed: never more than the goal, so the shop
     // receives precisely the amount it asked for.
-    let amount = campaign.total_raised;
-    let id_bytes = campaign.campaign_id.to_le_bytes();
-    let seeds: &[&[u8]] = &[
-        CAMPAIGN_SEED,
-        campaign.organizer.as_ref(),
-        &id_bytes,
-        &[campaign.bump],
-    ];
-
-    token::transfer_checked(
-        CpiContext::new_with_signer(
-            ctx.accounts.token_program.key(),
-            TransferChecked {
-                from: ctx.accounts.vault.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                to: ctx.accounts.recipient_token.to_account_info(),
-                authority: ctx.accounts.campaign.to_account_info(),
-            },
-            &[seeds],
-        ),
-        amount,
-        ctx.accounts.mint.decimals,
-    )?;
-
-    let campaign = &mut ctx.accounts.campaign;
-    campaign.status = CampaignStatus::Withdrawn;
+    let accounts = &mut ctx.accounts;
+    let vault = accounts.vault.to_account_info();
+    let recipient_token = accounts.recipient_token.to_account_info();
+    let token_program = accounts.token_program.key();
+    let amount = pay_out(&mut accounts.campaign, vault, &accounts.mint, recipient_token, token_program)?;
+    let campaign = &accounts.campaign;
 
     emit!(Withdrawn {
         campaign: campaign.key(),
         recipient: campaign.recipient,
         amount,
-        caller: ctx.accounts.caller.key(),
-        reference: ctx.accounts.reference.as_ref().map(|r| r.key()),
+        caller: accounts.caller.key(),
+        reference: accounts.reference.as_ref().map(|r| r.key()),
     });
     Ok(())
 }

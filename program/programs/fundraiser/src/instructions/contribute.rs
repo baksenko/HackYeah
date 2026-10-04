@@ -4,7 +4,8 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 use crate::{
     constants::*,
     error::FundraiserError,
-    events::Contributed,
+    events::{Contributed, Withdrawn},
+    payout::{check_reference, pay_out},
     state::{Campaign, CampaignStatus, Contribution},
 };
 
@@ -56,6 +57,26 @@ pub struct Contribute<'info> {
     /// Only for private campaigns: the invite key from the organizer's share
     /// link, co-signing to prove the contributor actually holds that link.
     pub invite: Option<Signer<'info>>,
+
+    /// The next three are only for the contribution that completes the goal:
+    /// with them, that same contribution pays the recipient at once, so the
+    /// money reaches the shop (or friend) the moment the goal is hit, with no
+    /// one having to press "pay out". Required when the campaign is a shop
+    /// order (it stores a payment reference).
+    ///
+    /// CHECK: must equal `campaign.recipient` (checked in the handler); only
+    /// identifies who the money is for. Never signs.
+    pub recipient: Option<UncheckedAccount<'info>>,
+
+    /// The recipient's token account for the campaign's mint. Must already
+    /// exist: the app creates it in the same transaction if needed. Owner and
+    /// mint are checked in the handler.
+    #[account(mut)]
+    pub recipient_token: Option<Account<'info, TokenAccount>>,
+
+    /// CHECK: read-only, never signs. For a shop order this must be the
+    /// stored Solana Pay reference, so the shop can find the payment.
+    pub reference: Option<UncheckedAccount<'info>>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -165,6 +186,52 @@ pub fn handle_contribute(
         contributor_total: contribution.amount,
         total_raised: campaign.total_raised,
         goal_reached,
+    });
+
+    if goal_reached {
+        pay_out_now(ctx.accounts, campaign_key, contributor_key)?;
+    }
+    Ok(())
+}
+
+/// The goal was just reached. If the payout accounts came along, pay the
+/// recipient right now; a shop order may not wait, so for one they are
+/// required. Otherwise the campaign stays Succeeded and anyone can call
+/// `withdraw` later.
+fn pay_out_now<'info>(
+    accounts: &mut Contribute<'info>,
+    campaign_key: Pubkey,
+    caller: Pubkey,
+) -> Result<()> {
+    let (Some(recipient), Some(recipient_token)) = (&accounts.recipient, &accounts.recipient_token) else {
+        require!(
+            accounts.campaign.reference.is_none(),
+            FundraiserError::PayoutAccountsRequired
+        );
+        return Ok(());
+    };
+
+    let campaign = &accounts.campaign;
+    require_keys_eq!(recipient.key(), campaign.recipient, FundraiserError::NotRecipient);
+    require_keys_eq!(
+        recipient_token.owner,
+        campaign.recipient,
+        FundraiserError::WrongRecipientAccount
+    );
+    require_keys_eq!(recipient_token.mint, campaign.mint, FundraiserError::WrongRecipientAccount);
+    check_reference(campaign, accounts.reference.as_ref())?;
+
+    let vault = accounts.vault.to_account_info();
+    let recipient_token = recipient_token.to_account_info();
+    let token_program = accounts.token_program.key();
+    let amount = pay_out(&mut accounts.campaign, vault, &accounts.mint, recipient_token, token_program)?;
+
+    emit!(Withdrawn {
+        campaign: campaign_key,
+        recipient: accounts.campaign.recipient,
+        amount,
+        caller,
+        reference: accounts.reference.as_ref().map(|r| r.key()),
     });
     Ok(())
 }
