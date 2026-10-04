@@ -16,9 +16,6 @@ local only, no real money.
 | Tests | 68 passing — `cd program && npm install && anchor build && npm test` (~1 s) |
 | Live demo · Video | [TODO: app URL] · [TODO: video link] |
 
-<!-- 📸 SCREENSHOT 01 — landing page. Save as docs/screenshots/01-home.png -->
-![Chip In landing page](docs/screenshots/01-home.png)
-
 ## For the jury
 
 | Criterion | Weight | In one line |
@@ -75,9 +72,6 @@ still trigger the payout to them; contributor — their refund waits forever.
 code could be replaced. `./scripts/make-immutable.sh` removes that for good.
 [TODO: run before submission, or state the decision.]
 
-<!-- 📸 SCREENSHOT 02 — open campaign: progress, "What can happen now", permissions table. Save as docs/screenshots/02-campaign-what-can-happen.png -->
-![Campaign page explaining who can do what](docs/screenshots/02-campaign-what-can-happen.png)
-
 ---
 
 ## 2. Completeness and functionality (25%)
@@ -97,49 +91,6 @@ code could be replaced. `./scripts/make-immutable.sh` removes that for good.
 > is verified on a local validator: one 642-byte transaction completed a
 > 42 USDC shop order, paid the shop and was found by its order reference.
 > [TODO: redeploy current build to devnet and run the full flow.]
-
-### Demo walkthrough
-
-**1 — Refused early, paid out automatically.** A creates a 50 USDC gift
-campaign; B contributes 20. C clicks **"Try to pay out early (demo)"**: it
-really lands and the program refuses it (`GoalNotReached`) — the website didn't
-stop C, the program did. C contributes the last 30, and that same transaction
-pays all 50 to the recipient.
-
-<!-- 📸 SCREENSHOT 03 — cost review before signing (ideally the one that "completes the goal"). Save as docs/screenshots/03-review-before-signing.png -->
-![Cost review before signing](docs/screenshots/03-review-before-signing.png)
-<!-- 📸 SCREENSHOT 04 — result of "Try to pay out early (demo)". Save as docs/screenshots/04-early-payout-refused.png -->
-![The program refuses an early payout](docs/screenshots/04-early-payout-refused.png)
-<!-- 📸 SCREENSHOT 05 — that failed transaction on Solana Explorer. Save as docs/screenshots/05-explorer-failed-tx.png -->
-![The refused transaction on Explorer](docs/screenshots/05-explorer-failed-tx.png)
-
-**2 — Cancelled, refunded.** A cancels a 500 USDC ski deposit after B put in
-30; B clicks **Get my money back** and receives exactly 30. A second click
-fails — the receipt is gone.
-
-**3 — Private, for friends.** A creates a private "Trip to New Zealand" and
-shares the QR code. C, without the link, clicks **"Try to contribute without
-the invite (demo)"** — refused with `InviteRequired`. B opens the link and
-contributes as "Kuba".
-
-<!-- 📸 SCREENSHOT 06 — share panel with QR code. Save as docs/screenshots/06-share-qr.png -->
-![Invite with a link or QR code](docs/screenshots/06-share-qr.png)
-<!-- 📸 SCREENSHOT 07 — private campaign opened without the invite. Save as docs/screenshots/07-private-locked.png -->
-![A private campaign without the invite](docs/screenshots/07-private-locked.png)
-
-**4 — A shop order.** On **`/demo-shop`**, click **Pay together with Chip In**;
-amount, shop and order name arrive locked. The contribution that completes the
-order pays the café in the same transaction, and the shop page — watching only
-the chain for its order reference — flips to **"Order paid ✓"** by itself.
-
-<!-- 📸 SCREENSHOT 08 — demo shop showing "Order paid ✓". Save as docs/screenshots/08-demo-shop-paid.png -->
-![The demo shop confirms the order](docs/screenshots/08-demo-shop-paid.png)
-<!-- 📸 SCREENSHOT 09 — Campaigns page with search and tags. Save as docs/screenshots/09-campaigns-search.png -->
-![Search and browse](docs/screenshots/09-campaigns-search.png)
-<!-- 📸 SCREENSHOT 10 — create form. Save as docs/screenshots/10-create-campaign.png -->
-![Creating a campaign](docs/screenshots/10-create-campaign.png)
-<!-- 📸 SCREENSHOT 11 — leaderboard. Save as docs/screenshots/11-leaderboard.png -->
-![Contributor leaderboard](docs/screenshots/11-leaderboard.png)
 
 ---
 
