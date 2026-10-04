@@ -97,14 +97,14 @@ export const PERMISSIONS = [
   {
     action: 'Contribute',
     who: 'Anyone (public) · invite-link holders only (private)',
-    when: 'While open, before the deadline and before the goal is reached',
-    enforcedBy: 'contribute.rs — CampaignNotActive, DeadlinePassed, RecipientChanged, InviteRequired, WrongMint',
+    when: 'While open, before the deadline, and only up to the amount still needed',
+    enforcedBy: 'contribute.rs — CampaignNotActive, DeadlinePassed, ExceedsGoal, RecipientChanged, InviteRequired, WrongMint',
   },
   {
     action: 'Send the money to the recipient',
     who: 'Anyone — but only ever to the stored recipient',
-    when: 'Once the goal is reached, even before the deadline; only once',
-    enforcedBy: 'withdraw.rs — GoalNotReached, AlreadyWithdrawn, NotRecipient',
+    when: 'Once the goal is reached, even before the deadline; only once; pays exactly the goal',
+    enforcedBy: 'withdraw.rs — GoalNotReached, AlreadyWithdrawn, NotRecipient, ReferenceRequired',
   },
   {
     action: 'Get my money back',

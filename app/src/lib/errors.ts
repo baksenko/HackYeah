@@ -1,4 +1,5 @@
 import idlJson from '../idl/fundraiser.json'
+import { formatUsdc } from './format'
 
 /** Error number -> name/message, straight from the deployed program's IDL. */
 const BY_CODE = new Map<number, { name: string; msg: string }>(
@@ -20,6 +21,10 @@ const PLAIN_LANGUAGE: Record<string, string> = {
   InvalidRecipient: 'Enter a real Solana address for the recipient.',
   NotOrganizer: 'Only the organizer of this campaign can do that.',
   WrongMint: 'This program only accepts USDC.',
+  ExceedsGoal: 'That is more than the campaign still needs. Contributions stop exactly at the goal.',
+  MemoTooLong: "The shop's memo is too long: the program allows 64 bytes.",
+  ReferenceRequired: "This payout must carry the shop's payment reference. Reload the page and try again.",
+  WrongReference: "That is not this campaign's payment reference. Reload the page and try again.",
   NoUsdcAccount: 'Your wallet has no USDC yet. Get some USDC first, then try again.',
   NotEnoughUsdc: 'Your wallet does not hold enough USDC for this.',
   DescriptionTooLong: 'The description is too long: the program allows 300 bytes.',
@@ -61,10 +66,15 @@ export function explainFailure(input: unknown, logs?: string[] | null): ProgramF
       ? String((input as { message: unknown }).message)
       : 'The transaction was rejected.'
 
+  // The program logs how much is still needed when it refuses an over-goal
+  // contribution; say it in USDC.
+  const remaining = name === 'ExceedsGoal' ? /Only (\d+) base units/.exec(describe(input, logs)) : null
   return {
     name: name ?? 'Unknown',
     message: known?.msg ?? fallback,
-    plain: (name && PLAIN_LANGUAGE[name]) || known?.msg || fallback,
+    plain: remaining
+      ? `Only ${formatUsdc(BigInt(remaining[1]))} is still needed to reach the goal. Contribute that much or less.`
+      : (name && PLAIN_LANGUAGE[name]) || known?.msg || fallback,
   }
 }
 

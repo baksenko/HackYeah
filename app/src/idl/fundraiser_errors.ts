@@ -1,4 +1,4 @@
-
+// Generated from the IDL by scripts/deploy-devnet.sh.
 export const FundraiserErrorCode = {
   DeadlineNotReached: 6000,
   DeadlinePassed: 6001,
@@ -25,7 +25,11 @@ export const FundraiserErrorCode = {
   RecipientLocked: 6022,
   InvalidRecipient: 6023,
   RecipientChanged: 6024,
-  CampaignCancelled: 6025
+  CampaignCancelled: 6025,
+  MemoTooLong: 6026,
+  ReferenceRequired: 6027,
+  WrongReference: 6028,
+  ExceedsGoal: 6029
 };
 
 export type FundraiserErrorName = keyof typeof FundraiserErrorCode;

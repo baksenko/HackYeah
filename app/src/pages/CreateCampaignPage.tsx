@@ -13,6 +13,7 @@ import { encodeInvite, rememberInvite } from '../lib/invite'
 import {
   MAX_DESCRIPTION_BYTES,
   MAX_IMAGE_URL_BYTES,
+  MAX_MEMO_BYTES,
   MAX_TITLE_BYTES,
   campaignPda,
   useProgram,
@@ -20,7 +21,7 @@ import {
 import { MAX_TAGS, encodeTags, tagsForScope, type Tag } from '../lib/tags'
 import { sendTransaction, type TxOutcome } from '../lib/send'
 import { formatUsdc, parseUsdc } from '../lib/format'
-import { looksLikeSolanaPay, parseSolanaPayUrl, rememberReference, type PaymentRequest } from '../lib/solanaPay'
+import { looksLikeSolanaPay, parseSolanaPayUrl, type PaymentRequest } from '../lib/solanaPay'
 import { USDC_MINT } from '../lib/program'
 import { useChainClock } from '../lib/useChainClock'
 
@@ -41,8 +42,9 @@ type Draft = {
   goal: BN
   seconds: number
   recipientKey: PublicKey
-  /** From a pasted Solana Pay link; remembered locally for the payout. */
+  /** From a pasted Solana Pay link; stored on the campaign, carried by the payout. */
   reference: PublicKey | null
+  memo: string
   invite: Keypair | null
   tags: number
   description: string
@@ -121,6 +123,8 @@ export function CreateCampaignPage() {
         d.tags,
         d.description,
         d.imageUrl,
+        d.reference,
+        d.memo,
       )
       // The USDC mint and the campaign's vault are fixed by the program and
       // resolved from the IDL.
@@ -172,6 +176,10 @@ export function CreateCampaignPage() {
       setFormError(payment.error)
       return
     }
+    if (paymentRequest?.memo && byteLength(paymentRequest.memo) > MAX_MEMO_BYTES) {
+      setFormError(`The shop's memo is ${byteLength(paymentRequest.memo)} bytes; the program allows ${MAX_MEMO_BYTES}.`)
+      return
+    }
     let recipientKey: PublicKey
     try {
       recipientKey = paymentRequest
@@ -193,6 +201,7 @@ export function CreateCampaignPage() {
       seconds,
       recipientKey,
       reference: paymentRequest?.references[0] ?? null,
+      memo: paymentRequest?.memo ?? '',
       // A private campaign gets a fresh invite key. Only its public half goes
       // on chain; the secret half becomes the share link.
       invite: visibility === 'private' ? Keypair.generate() : null,
@@ -242,6 +251,9 @@ export function CreateCampaignPage() {
             ...(next.imageUrl
               ? ['Only the photo link is fixed. Whoever hosts the image could still change or remove it.']
               : []),
+            ...(next.reference || next.memo
+              ? ["The shop's payment reference and memo are stored with the campaign. Every payout carries them, so the shop can confirm it has been paid."]
+              : []),
           ],
           confirmLabel: 'Confirm and create campaign',
         },
@@ -266,7 +278,6 @@ export function CreateCampaignPage() {
       setOutcome(result)
       setDraft(null)
       if (result.kind === 'success') {
-        if (draft.reference) rememberReference(draft.campaign, draft.reference)
         if (draft.invite) {
           rememberInvite(draft.campaign, draft.invite)
           navigate(`/c/${draft.campaign.toBase58()}#invite=${encodeInvite(draft.invite)}`)
@@ -518,10 +529,13 @@ export function CreateCampaignPage() {
                 )}
               </p>
             )}
-            {paymentRequest.references[0] && (
+            {(paymentRequest.references[0] || paymentRequest.memo) && (
               <p className="aside">
-                Its reference is remembered in this browser and attached to the payout, so the
-                store can find the payment.
+                Its {paymentRequest.references[0] ? 'reference' : ''}
+                {paymentRequest.references[0] && paymentRequest.memo ? ' and ' : ''}
+                {paymentRequest.memo ? `memo (“${paymentRequest.memo}”)` : ''} will be stored with the
+                campaign, and the payout always carries them — whoever sends it — so the shop can
+                confirm it has been paid.
               </p>
             )}
           </div>

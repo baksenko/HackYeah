@@ -78,7 +78,7 @@ async function main() {
     await program.methods.createCampaign(
       new anchor.BN(campaignId.toString()), title,
       new anchor.BN(goalUsdc * USDC), new anchor.BN(deadline), organizer.publicKey,
-      invite ? invite.publicKey : null, tags, description, imageUrl)
+      invite ? invite.publicKey : null, tags, description, imageUrl, null, "")
       .accountsPartial({ organizer: organizer.publicKey, campaign, mint: TEST_USDC.publicKey })
       .rpc();
     console.log(`created ${invite ? "PRIVATE" : "public "} "${title}" -> ${campaign.toBase58()} (goal ${goalUsdc} USDC, deadline +${secs}s)`);
@@ -148,7 +148,7 @@ async function main() {
   // ---- goal reached: Succeeded immediately, waiting for anyone to pay it out
   const cats = await create("Shelter for street cats", 100, H2, null, [T.animals]);
   await give(cats.campaign, bob, 60, "Kuba");
-  await give(cats.campaign, carol, 50, "Ola");
+  await give(cats.campaign, carol, 40, "Ola"); // exactly the goal: contributions stop there
 
   // ---- paid out
   const garden = await create("Community garden seeds", 100, H2, null, [T.environment, T.community]);

@@ -15,6 +15,8 @@ export type PaymentRequest = {
   references: PublicKey[]
   label: string | null
   message: string | null
+  /** Must appear in the payment transaction as an SPL Memo instruction. */
+  memo: string | null
 }
 
 export const looksLikeSolanaPay = (text: string) => text.trim().toLowerCase().startsWith('solana:')
@@ -62,30 +64,6 @@ export function parseSolanaPayUrl(text: string): PaymentRequest {
     }),
     label: params.get('label'),
     message: params.get('message'),
-  }
-}
-
-const referenceKey = (campaign: PublicKey) => `chipin:reference:${campaign.toBase58()}`
-
-/**
- * Remembers a payment request's reference for a campaign, in this browser
- * only. The program does not store it; `withdraw` simply carries it so the
- * store can find the payout. Anyone can trigger the payout, so a payout from
- * another browser just goes out without it.
- */
-export function rememberReference(campaign: PublicKey, reference: PublicKey) {
-  try {
-    localStorage.setItem(referenceKey(campaign), reference.toBase58())
-  } catch {
-    // Storage blocked: the payout still works, only without the reference.
-  }
-}
-
-export function recallReference(campaign: PublicKey): PublicKey | null {
-  try {
-    const value = localStorage.getItem(referenceKey(campaign))
-    return value ? new PublicKey(value) : null
-  } catch {
-    return null
+    memo: params.get('memo'),
   }
 }
