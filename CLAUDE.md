@@ -43,7 +43,7 @@ npm test                              # LiteSVM suite, no validator, ~seconds
 npx ts-mocha -p ./tsconfig.json -t 1000000 'tests/litesvm/**/*.test.ts' -g "double refund"   # one test
 ```
 
-Tests run in-process on LiteSVM 1.x via `tests/litesvm/provider.ts` (a small Anchor provider bridging web3.js v1 to LiteSVM; litesvm 0.3 / anchor-litesvm cannot load the SBPF v3 programs Agave 4.x builds). Deadlines are passed with `h.warp(seconds)`; `fixtures.ts` builds every instruction call. Run `anchor build` first — tests load `target/deploy/fundraiser.so` and `target/idl/fundraiser.json`.
+Tests run in-process on LiteSVM 1.x via `tests/litesvm/provider.ts` (a small Anchor provider bridging web3.js v1 to LiteSVM; litesvm 0.3 / anchor-litesvm cannot load the SBPF v3 programs Agave 4.x builds). Deadlines are passed with `h.warp(seconds)`; `fixtures.ts` builds every instruction call. Run `anchor build` first — tests load `target/deploy/fundraiser.so` and `target/idl/fundraiser.json`. On Windows run them inside WSL: `program/node_modules` holds LiteSVM's native binary for the platform it was installed on (linux-x64 here), so `npm test` from Windows fails to load it.
 
 Frontend (`app/`):
 
@@ -54,7 +54,15 @@ npm run build                                        # tsc -b && vite build
 npm run lint                                         # oxlint
 ```
 
-Local end-to-end: `solana-test-validator --reset --bpf-program DePh1g…qRu7 program/target/deploy/fundraiser.so`, then `./scripts/seed-local.sh` (creates the test USDC mint and campaigns in every state), then the app with `VITE_RPC_ENDPOINT`. The app's wallet bar has "Get test SOL" and, on localnet, "Get test USDC".
+Local end-to-end, from the repo root, with a localnet build (no features — the seed script refuses any other):
+
+```bash
+solana-test-validator --ledger program/test-ledger --reset --quiet   --bpf-program DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7 program/target/deploy/fundraiser.so
+./scripts/seed-local.sh                                      # test USDC mint + campaigns in every state
+cd app && VITE_RPC_ENDPOINT=http://127.0.0.1:8899 npm run dev
+```
+
+`--bpf-program` loads the build at the declared address, so the missing deploy keypair doesn't matter locally. `--reset` wipes everything, so re-seed after every validator restart. The app's wallet bar has "Get test SOL" and, on localnet, "Get test USDC".
 
 Devnet: fund the deploy wallet (`./scripts/airdrop.sh`), then `./scripts/deploy-devnet.sh`. **Never run `scripts/make-immutable.sh`** without explicit instruction — it permanently discards the upgrade authority.
 
@@ -69,7 +77,7 @@ Seven instructions in `lib.rs`, each delegating to `instructions/<name>.rs` (`ha
 - **`Contribution`** PDA, seeds `["contribution", campaign, contributor]`, is the refund receipt; `refund` closes it (`close = contributor`), which prevents a double refund. `campaign` must stay the first field (memcmp offset 8); `contributor` is at 40.
 - **`USDC_MINT`** (`constants.rs`) is chosen by cargo feature: `mainnet`, `devnet`, or neither (localnet test mint from a public seed). Every token account is pinned with Anchor constraints (`address`/`has_one` for the mint, `token::`/`associated_token::` for sources, vault and destinations).
 
-Rules enforced: `contribute` only while Active and before the deadline, and `expected_recipient` must match (a recipient change can never catch a contributor); `withdraw` is permissionless once Succeeded, destination pinned to the stored recipient; `refund` by the contributor once Cancelled or (Active and past the deadline); `cancel` by the organiser only while Active; `update_recipient` by the organiser only while Active and nothing raised; `close_campaign` only when settled, and it also closes the (empty) vault. Time always comes from `Clock::get()`, all arithmetic is checked. A campaign with every field at its maximum must still fit in one transaction (1232 bytes) with headroom — `validation.test.ts` enforces it; mind this when adding accounts or fields. Keep the README's "Who can call what" table in sync if rules change.
+Rules enforced: `contribute` only while Active and before the deadline, and `expected_recipient` must match (a recipient change can never catch a contributor); `withdraw` is permissionless once Succeeded, destination pinned to the stored recipient; `refund` by the contributor once Cancelled or (Active and past the deadline); `cancel` by the organiser only while Active; `update_recipient` by the organiser only while Active and nothing raised; `close_campaign` only when settled, and it also closes the (empty) vault. Time always comes from `Clock::get()`, all arithmetic is checked. Add new errors at the **end** of `error.rs`: Anchor numbers them by position (6000 + index), so inserting one renumbers every later code — the app's `idl/fundraiser_errors.ts` and any recorded codes would silently shift. A campaign with every field at its maximum must still fit in one transaction (1232 bytes) with headroom — `validation.test.ts` enforces it; mind this when adding accounts or fields. Keep the README's "Who can call what" table in sync if rules change.
 
 ### Frontend (`app/src/`)
 
