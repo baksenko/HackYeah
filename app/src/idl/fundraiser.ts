@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/fundraiser.json`.
  */
 export type Fundraiser = {
-  "address": "DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7",
+  "address": "HZYrUYrRqNt76f8Qh2tcJsxWk2dVep4sFHruWi7k7aJw",
   "metadata": {
     "name": "fundraiser",
     "version": "0.1.0",

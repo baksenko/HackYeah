@@ -7,7 +7,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-fundraiser = "DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7"
+fundraiser = "HZYrUYrRqNt76f8Qh2tcJsxWk2dVep4sFHruWi7k7aJw"
 
 [provider]
 cluster = "http://127.0.0.1:8899"

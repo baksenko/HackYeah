@@ -23,7 +23,7 @@ pub use events::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7");
+declare_id!("HZYrUYrRqNt76f8Qh2tcJsxWk2dVep4sFHruWi7k7aJw");
 
 #[program]
 pub mod fundraiser {

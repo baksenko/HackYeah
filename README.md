@@ -10,7 +10,7 @@ not us — can bend those rules once a campaign exists.
 Built for the Superteam Poland "Finance Without Intermediaries" challenge.
 Devnet only. No real money.
 
-- **Program ID:** `DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7` (declared in
+- **Program ID:** `HZYrUYrRqNt76f8Qh2tcJsxWk2dVep4sFHruWi7k7aJw` (declared in
   `program/programs/fundraiser/src/lib.rs`)
 - **Anchor** 1.2.0 · **Agave** (solana-cli) 4.3.0 · program toolchain pinned in
   `program/rust-toolchain.toml`
@@ -326,7 +326,7 @@ no recovery. The plan is to do this before submission; it **has not been
 done yet**. Check the current state yourself:
 
 ```bash
-solana program show DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7 --url devnet
+solana program show HZYrUYrRqNt76f8Qh2tcJsxWk2dVep4sFHruWi7k7aJw --url devnet
 ```
 
 ---
@@ -514,7 +514,7 @@ everything. Build without features (the test mint), then:
 ```bash
 # 1. validator, with the program loaded at its declared address
 solana-test-validator --ledger program/test-ledger --reset --quiet \
-  --bpf-program DePh1gwDErCKze49Udvkod6FFPsx5UwNmjHr5afhqRu7 program/target/deploy/fundraiser.so
+  --bpf-program HZYrUYrRqNt76f8Qh2tcJsxWk2dVep4sFHruWi7k7aJw program/target/deploy/fundraiser.so
 
 # 2. test USDC and campaigns in every state (open, goal reached, paid out,
 #    cancelled, goal missed)
