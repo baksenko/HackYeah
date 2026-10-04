@@ -3,7 +3,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { Keypair, PublicKey } from '@solana/web3.js'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { Address } from '../components/Address'
 import { ReviewPanel, type ReviewView } from '../components/ReviewPanel'
@@ -21,7 +21,12 @@ import {
 import { MAX_TAGS, encodeTags, tagsForScope, type Tag } from '../lib/tags'
 import { sendTransaction, type TxOutcome } from '../lib/send'
 import { formatUsdc, parseUsdc } from '../lib/format'
-import { looksLikeSolanaPay, parseSolanaPayUrl, type PaymentRequest } from '../lib/solanaPay'
+import {
+  looksLikeSolanaPay,
+  parseSolanaPayUrl,
+  readShopRequest,
+  type PaymentRequest,
+} from '../lib/solanaPay'
 import { USDC_MINT } from '../lib/program'
 import { useChainClock } from '../lib/useChainClock'
 
@@ -67,16 +72,26 @@ export function CreateCampaignPage() {
   const navigate = useNavigate()
   const now = useChainClock()
 
+  // The merchant entry point: /create?pay=<url-encoded Solana Pay link>. A
+  // valid shop link fixes recipient, amount, reference, title and memo.
+  const [searchParams] = useSearchParams()
+  const shopLink = searchParams.get('pay')
+  const shopCheck = shopLink
+    ? readShopRequest(shopLink, USDC_MINT, { titleBytes: MAX_TITLE_BYTES, memoBytes: MAX_MEMO_BYTES })
+    : null
+  const shop = shopCheck && 'request' in shopCheck ? shopCheck : null
+  const shopError = shopCheck && 'error' in shopCheck ? shopCheck.error : null
+
   const [visibility, setVisibility] = useState<'private' | 'public'>('private')
   const [tags, setTags] = useState<Tag[]>([])
-  const [title, setTitle] = useState('')
+  const [title, setTitle] = useState(() => shop?.title ?? '')
   const [description, setDescription] = useState('')
   const [imageUrl, setImageUrl] = useState('')
   const [imageFailed, setImageFailed] = useState(false)
-  const [goal, setGoal] = useState('1')
+  const [goal, setGoal] = useState(() => shop?.amount ?? '1')
   const [preset, setPreset] = useState<number>(PRESETS[0].seconds)
   const [customMinutes, setCustomMinutes] = useState('30')
-  const [recipient, setRecipient] = useState('')
+  const [recipient, setRecipient] = useState(() => shop?.link ?? '')
   const [busy, setBusy] = useState(false)
   const [outcome, setOutcome] = useState<TxOutcome | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
@@ -138,6 +153,10 @@ export function CreateCampaignPage() {
 
     if (!wallet.publicKey || !wallet.signTransaction) {
       setFormError('Connect a wallet first.')
+      return
+    }
+    if (shopError) {
+      setFormError(shopError)
       return
     }
 
@@ -308,6 +327,28 @@ export function CreateCampaignPage() {
         afterwards — not by you, not by us.
       </p>
 
+      {shopError && (
+        <div className="notice notice-error">
+          <strong>This shop&apos;s payment link cannot be paid with Chip In.</strong>
+          <p>{shopError}</p>
+        </div>
+      )}
+      {shop && (
+        <div className="notice shop-request">
+          <strong>Paying a shop together{shop.request.label ? `: ${shop.request.label}` : ''}</strong>
+          <p>
+            The shop asks for <strong>{formatUsdc(parseUsdc(shop.amount))}</strong>. It set the recipient, the
+            amount, its payment reference{shop.request.memo ? ' and memo' : ''} and the title, so they cannot be
+            changed here. You choose who can join, the deadline and the rest.
+          </p>
+          <p className="aside">
+            If the group reaches the amount, anyone can send it to the shop and the payment carries the shop&apos;s
+            reference, so the shop sees it as paid. If the goal is missed or you cancel, everyone gets their money
+            back.
+          </p>
+        </div>
+      )}
+
       {/*
         Editing any field discards the review, so what is signed always matches
         the form. Inputs reach this through onChange; the visibility and tag
@@ -355,10 +396,15 @@ export function CreateCampaignPage() {
             onChange={(e) => setTitle(e.target.value)}
             placeholder={visibility === 'private' ? 'Trip to New Zealand' : 'New playground for our street'}
             maxLength={120}
+            readOnly={!!shop}
           />
-          <small className={titleBytes > MAX_TITLE_BYTES ? 'warn' : ''}>
-            {titleBytes}/{MAX_TITLE_BYTES} characters
-          </small>
+          {shop ? (
+            <small className="locked">Set by the shop</small>
+          ) : (
+            <small className={titleBytes > MAX_TITLE_BYTES ? 'warn' : ''}>
+              {titleBytes}/{MAX_TITLE_BYTES} characters
+            </small>
+          )}
         </label>
 
         <label>
@@ -447,7 +493,9 @@ export function CreateCampaignPage() {
             onChange={(e) => setGoal(e.target.value)}
             inputMode="decimal"
             placeholder="1"
+            readOnly={!!shop}
           />
+          {shop && <small className="locked">Set by the shop</small>}
           <small>If this much is not collected in time, everyone gets their money back.</small>
         </label>
 
@@ -485,12 +533,17 @@ export function CreateCampaignPage() {
             onChange={(e) => setRecipient(e.target.value)}
             placeholder={connectedKey}
             spellCheck={false}
+            readOnly={!!shop}
           />
-          <small>
-            A wallet address, or a store&apos;s Solana Pay payment link (it starts with
-            &quot;solana:&quot;). Leave it empty to use your own wallet. Once anyone contributes, the
-            recipient is locked, so the money can never be sent anywhere else.
-          </small>
+          {shop ? (
+            <small className="locked">Set by the shop — its payment link, with its reference and memo</small>
+          ) : (
+            <small>
+              A wallet address, or a store&apos;s Solana Pay payment link (it starts with
+              &quot;solana:&quot;). Leave it empty to use your own wallet. Once anyone contributes, the
+              recipient is locked, so the money can never be sent anywhere else.
+            </small>
+          )}
         </label>
 
         {payment && 'error' in payment && <p className="notice notice-error">{payment.error}</p>}
@@ -567,7 +620,7 @@ export function CreateCampaignPage() {
             onBack={() => setDraft(null)}
           />
         ) : (
-          <button type="submit" className="button button-primary" disabled={busy}>
+          <button type="submit" className="button button-primary" disabled={busy || !!shopError}>
             {busy ? 'Preparing…' : 'Review and create'}
           </button>
         )}

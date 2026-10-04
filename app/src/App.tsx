@@ -43,6 +43,8 @@ export function App() {
           <Route path="/campaigns" element={<CampaignsPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/new" element={<CreateCampaignPage />} />
+          {/* The merchant entry point: /create?pay=<url-encoded Solana Pay link> */}
+          <Route path="/create" element={<CreateCampaignPage />} />
           <Route path="/c/:address" element={<CampaignPage />} />
           <Route path="*" element={<p className="empty">Nothing here.</p>} />
         </Routes>

@@ -67,3 +67,63 @@ export function parseSolanaPayUrl(text: string): PaymentRequest {
     memo: params.get('memo'),
   }
 }
+
+/** What a shop's link sets on a campaign, ready to lock in the create form. */
+export type ShopRequest = {
+  /** The link itself; goes in the recipient field, so the usual parsing applies. */
+  link: string
+  request: PaymentRequest
+  /** From the shop's label, cut to the program's title limit. */
+  title: string
+  /** The order amount as typed in the link, e.g. "42.50". */
+  amount: string
+}
+
+/** Cuts text to at most `maxBytes` of UTF-8 without splitting a character. */
+function cutToBytes(text: string, maxBytes: number): string {
+  let out = ''
+  for (const ch of text) {
+    if (new TextEncoder().encode(out + ch).length > maxBytes) break
+    out += ch
+  }
+  return out
+}
+
+/**
+ * Checks a shop's Solana Pay transfer link for the merchant entry point
+ * (/create?pay=...). Returns what it sets, or a plain-language reason the
+ * order cannot be paid with Chip In.
+ */
+export function readShopRequest(
+  link: string,
+  usdcMint: PublicKey,
+  limits: { titleBytes: number; memoBytes: number },
+): ShopRequest | { error: string } {
+  let request: PaymentRequest
+  try {
+    request = parseSolanaPayUrl(link)
+  } catch (e) {
+    return { error: `The shop's payment link could not be read: ${e instanceof Error ? e.message : 'it is not valid.'}` }
+  }
+  if (!request.splToken) {
+    return {
+      error:
+        'This shop asks to be paid in SOL. Chip In collects USDC only, so it cannot pay this order. Ask the shop for a USDC payment link.',
+    }
+  }
+  if (!request.splToken.equals(usdcMint)) {
+    return {
+      error:
+        'This shop asks to be paid in a token other than USDC. Chip In collects USDC only, so it cannot pay this order. Ask the shop for a USDC payment link.',
+    }
+  }
+  if (!request.amount) return { error: "The shop's payment link does not say how much to pay." }
+  if (!/^\d+(\.\d{1,6})?$/.test(request.amount) || Number(request.amount) <= 0) {
+    return { error: `The shop's amount (${request.amount}) is not a valid USDC amount.` }
+  }
+  if (request.memo && new TextEncoder().encode(request.memo).length > limits.memoBytes) {
+    return { error: `The shop's memo is longer than ${limits.memoBytes} bytes, which campaigns cannot store.` }
+  }
+  const label = request.label?.trim() || `Payment to ${request.recipient.toBase58().slice(0, 4)}…`
+  return { link, request, title: cutToBytes(label, limits.titleBytes), amount: request.amount }
+}

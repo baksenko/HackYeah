@@ -25,7 +25,7 @@ import { buildContributeTransaction, buildWithdrawTransaction } from '../lib/act
 import { CLUSTER_LABEL } from '../lib/cluster'
 import { PERMISSIONS, whatCanHappenNow } from '../lib/explain'
 import { CONTRIBUTION_ACCOUNT_SPACE, TOKEN_ACCOUNT_SPACE, accountDeposit, networkFee } from '../lib/fees'
-import { formatCountdown, formatDateTime, formatUsdc, parseUsdc } from '../lib/format'
+import { formatCountdown, formatDateTime, formatUsdc, parseUsdc, usdcInputValue } from '../lib/format'
 import { useCampaignIndex } from '../lib/indexer'
 import { buildLeaderboard } from '../lib/leaderboard'
 import {
@@ -72,7 +72,8 @@ export function CampaignPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [outcome, setOutcome] = useState<TxOutcome | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const [amount, setAmount] = useState('10')
+  /** What the person typed; null until they type, so the box shows what is still needed. */
+  const [amount, setAmount] = useState<string | null>(null)
   const [amountError, setAmountError] = useState<string | null>(null)
   const [nickname, setNickname] = useState(recallNickname)
   const [pending, setPending] = useState<Pending | null>(null)
@@ -177,6 +178,8 @@ export function CampaignPage() {
         pending.options,
       )
       setOutcome(result)
+      // After a contribution, offer the new remaining amount again.
+      if (pending.key === 'contribute' && result.kind === 'success') setAmount(null)
       setPending(null)
       await load()
     } catch (error) {
@@ -196,6 +199,9 @@ export function CampaignPage() {
   const recipientAddress = recipientKey.toBase58()
   const deadline = campaign.deadline.toNumber()
   const raisedUnits = BigInt(campaign.totalRaised.toString())
+  // Contributions stop exactly at the goal (the program refuses more).
+  const remainingUnits = BigInt(campaign.goal.toString()) - raisedUnits
+  const amountText = amount ?? (remainingUnits > 0n ? usdcInputValue(remainingUnits) : '')
   const hasShopReference = campaign.reference !== null
 
   // This campaign's own leaderboard: the same ranking as the global one,
@@ -272,9 +278,13 @@ export function CampaignPage() {
     setAmountError(null)
     let units: BN
     try {
-      units = parseUsdc(amount)
+      units = parseUsdc(amountText)
     } catch (e) {
       setAmountError(e instanceof Error ? e.message : 'Enter a valid amount.')
+      return
+    }
+    if (BigInt(units.toString()) > remainingUnits) {
+      setAmountError(`Only ${formatUsdc(remainingUnits)} is still needed to reach the goal. Contribute that much or less.`)
       return
     }
     const name = nickname.trim()
@@ -569,7 +579,7 @@ export function CampaignPage() {
               <label>
                 <span>Amount in USDC</span>
                 <input
-                  value={amount}
+                  value={amountText}
                   onChange={(e) => setAmount(e.target.value)}
                   inputMode="decimal"
                   disabled={pending !== null}
@@ -583,6 +593,9 @@ export function CampaignPage() {
                 {buttonLabel('contribute', 'Contribute')}
               </button>
             </div>
+            <p className="aside">
+              {formatUsdc(remainingUnits)} is still needed. Contributions stop exactly at the goal.
+            </p>
             {amountError && <p className="notice notice-error">{amountError}</p>}
             {myContribution && (
               <p className="aside">
