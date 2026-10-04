@@ -71,7 +71,13 @@ pub struct Contribute<'info> {
     /// The recipient's token account for the campaign's mint. Must already
     /// exist: the app creates it in the same transaction if needed. Owner and
     /// mint are checked in the handler.
-    #[account(mut)]
+    ///
+    /// `dup`: when the recipient completes their own campaign (e.g. the
+    /// organizer is the recipient and chips in the last part), this is the
+    /// same account as `contributor_token`. That is fine: it is owned by the
+    /// token program, so Anchor never writes it back, and the token program
+    /// handles both transfers correctly.
+    #[account(mut, dup)]
     pub recipient_token: Option<Account<'info, TokenAccount>>,
 
     /// CHECK: read-only, never signs. For a shop order this must be the

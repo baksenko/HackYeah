@@ -179,4 +179,17 @@ describe("shop payments (Solana Pay reference and memo)", () => {
     await withdraw(h, campaign, h.wallet());
     assert.equal(h.tokenBalance(tokenAccountOf(anna)), BigInt(10 * USDC));
   });
+
+  it("the recipient can complete their own campaign and be paid in the same transaction", async () => {
+    // The app defaults the recipient to the organizer's own wallet, so the
+    // completing contributor's token account is also the payout destination.
+    const h = createHarness();
+    const organizer = h.wallet();
+    h.fundTokens(organizer.publicKey, 25 * USDC);
+    const { campaign, vault } = await createCampaign(h, { organizer, goalUsdc: 25 });
+    await contribute(h, campaign, organizer, 25 * USDC, { payout: true });
+    assert.equal(await statusOf(h, campaign), "withdrawn");
+    assert.equal(h.tokenBalance(tokenAccountOf(organizer.publicKey)), BigInt(25 * USDC), "back with the recipient");
+    assert.equal(h.tokenBalance(vault), 0n);
+  });
 });

@@ -376,7 +376,13 @@
           "docs": [
             "The recipient's token account for the campaign's mint. Must already",
             "exist: the app creates it in the same transaction if needed. Owner and",
-            "mint are checked in the handler."
+            "mint are checked in the handler.",
+            "",
+            "`dup`: when the recipient completes their own campaign (e.g. the",
+            "organizer is the recipient and chips in the last part), this is the",
+            "same account as `contributor_token`. That is fine: it is owned by the",
+            "token program, so Anchor never writes it back, and the token program",
+            "handles both transfers correctly."
           ],
           "writable": true,
           "optional": true
